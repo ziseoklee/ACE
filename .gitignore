@@ -1,0 +1,17 @@
+# Byte-compiled / cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Python path config files
+*.pth
+
+# Data files
+*.csv
+
+# Images
+*.png
+
+# Ignore any directory with "experiment" in its name
+**/*experiment*/
