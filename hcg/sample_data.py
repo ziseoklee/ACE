@@ -1,15 +1,45 @@
-def sample_checkerboard(bs):
-    x1 = torch.rand(bs) * 4 - 2
+import torch
+
+# def sample_checkerboard(bs):
+#     x1 = torch.rand(bs) * 4 - 2
+#     x2_ = torch.rand(bs) - torch.randint(2, (bs,)) * 2
+#     x2 = x2_ + (torch.floor(x1) % 2)
+#     return (torch.cat([x1[:, None], x2[:, None]], 1) * 2)
+
+
+def sample_checkerboard(bs, swapped=True):
+    x1 = torch.rand(bs) * 4 - 2   # column index
     x2_ = torch.rand(bs) - torch.randint(2, (bs,)) * 2
     x2 = x2_ + (torch.floor(x1) % 2)
-    return (torch.cat([x1[:, None], x2[:, None]], 1) * 2)
+
+    # Scale back to [-4, 4]^2
+    XY = (torch.cat([x1[:, None], x2[:, None]], 1) * 2)
+
+    if swapped:
+        # Flip checkerboard parity by shifting X by 2 units
+        XY[:, 0] = (XY[:, 0] + 2) % 8 - 4
+
+    return XY
+
+
+# def make_conditions(XY):
+#     X, Y = XY[:, 0], XY[:, 1]
+#     A = (((0 <= X))).float().unsqueeze(1)
+#     # A = (((-2 <= X) & (X <= 0)) | ((2 <= X) & (X <= 4))).float().unsqueeze(1)
+#     C = ((0 <= Y) & (Y <= 4)).float().unsqueeze(1)
+#     B = ((X*X + Y*Y) <= 9).float().unsqueeze(1)
+#     return X.unsqueeze(1), Y.unsqueeze(1), A, B, C
 
 def make_conditions(XY):
     X, Y = XY[:, 0], XY[:, 1]
-    A = (((-2 <= X) & (X <= 0)) | ((2 <= X) & (X <= 4))).float().unsqueeze(1)
-    B = ((0 <= Y) & (Y <= 4)).float().unsqueeze(1)
-    C = ((0 <= X) & (X <= 4)).float().unsqueeze(1)
+
+    # A: strip in x (example: X >= 0)
+    A = (0 <= X).float().unsqueeze(1)
+    B = (0 <= (X+Y)).float().unsqueeze(1)
+    C = ((0 <= Y) & (Y <= 4)).float().unsqueeze(1)
+
     return X.unsqueeze(1), Y.unsqueeze(1), A, B, C
+
 
 def sample_data_model1(batch_size, cond_val=None):
     """
@@ -80,7 +110,7 @@ def ground_truth_hcg(batch_size, cond_A=None, cond_B=None):
         else:
             mask = torch.ones(len(X), dtype=bool)
         filtered_xy = xy[mask]
-        samples.append(filtered_xy)
+        samples.append(filtered_xy) #; print(filtered_xy.shape)
         samples = torch.cat(samples, dim=0)
     return samples[:batch_size]
 
