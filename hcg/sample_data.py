@@ -117,7 +117,7 @@ def ground_truth_hcg(batch_size, cond_A=None, cond_B=None):
 import matplotlib.pyplot as plt
 import torch
 
-def plot_diagnostics(samples, logw_final, logw_history, save_name="diagnostics"):
+def plot_diagnostics(samples, logw_final, logw_history, save_name="diagnostics", full=True):
     """
     Generate diagnostic plots:
     1. Scatter plot of samples
@@ -143,46 +143,46 @@ def plot_diagnostics(samples, logw_final, logw_history, save_name="diagnostics")
     plt.savefig(f"{save_name}_samples.png", dpi=300)
     plt.show()
     plt.close()
+    if full:
+        # --- Plot final weight distribution ---
+        final_weights = torch.exp(logw_final - torch.max(logw_final))  # stabilize
+        final_weights = final_weights.cpu().numpy().squeeze()
 
-    # --- Plot final weight distribution ---
-    final_weights = torch.exp(logw_final - torch.max(logw_final))  # stabilize
-    final_weights = final_weights.cpu().numpy().squeeze()
+        plt.figure(figsize=(6,4))
+        plt.hist(final_weights, bins=50, density=True, alpha=0.7)
+        plt.title("Final Weight Distribution")
+        plt.xlabel("Weight")
+        plt.ylabel("Density")
+        plt.grid(True)
+        plt.savefig(f"{save_name}_weights.png", dpi=300)
+        plt.show()
+        plt.close()
 
-    plt.figure(figsize=(6,4))
-    plt.hist(final_weights, bins=50, density=True, alpha=0.7)
-    plt.title("Final Weight Distribution")
-    plt.xlabel("Weight")
-    plt.ylabel("Density")
-    plt.grid(True)
-    plt.savefig(f"{save_name}_weights.png", dpi=300)
-    plt.show()
-    plt.close()
+        # --- Time evolution diagnostics ---
+        ess_list, var_list = [], []
+        for lw in logw_history:
+            w = torch.exp(lw - torch.max(lw))
+            w = w / torch.sum(w)
+            ess = 1.0 / torch.sum(w**2)
+            var = torch.var(w)
+            ess_list.append(ess.item())
+            var_list.append(var.item())
 
-    # --- Time evolution diagnostics ---
-    ess_list, var_list = [], []
-    for lw in logw_history:
-        w = torch.exp(lw - torch.max(lw))
-        w = w / torch.sum(w)
-        ess = 1.0 / torch.sum(w**2)
-        var = torch.var(w)
-        ess_list.append(ess.item())
-        var_list.append(var.item())
+        plt.figure(figsize=(10,4))
+        plt.subplot(1,2,1)
+        plt.plot(ess_list)
+        plt.title("ESS over time")
+        plt.xlabel("Step")
+        plt.ylabel("ESS")
 
-    plt.figure(figsize=(10,4))
-    plt.subplot(1,2,1)
-    plt.plot(ess_list)
-    plt.title("ESS over time")
-    plt.xlabel("Step")
-    plt.ylabel("ESS")
-
-    plt.subplot(1,2,2)
-    plt.plot(var_list)
-    plt.title("Weight Variance over time")
-    plt.xlabel("Step")
-    plt.ylabel("Variance")
-        
-    plt.tight_layout()
-    plt.savefig(f"{save_name}_diagnostics.png", dpi=300)
-    plt.show()
-    plt.close()
+        plt.subplot(1,2,2)
+        plt.plot(var_list)
+        plt.title("Weight Variance over time")
+        plt.xlabel("Step")
+        plt.ylabel("Variance")
+            
+        plt.tight_layout()
+        plt.savefig(f"{save_name}_diagnostics.png", dpi=300)
+        plt.show()
+        plt.close()
 
