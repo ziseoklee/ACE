@@ -15,3 +15,10 @@ def compute_sample_based_metrics(a, b):
 
     return w1, w2, mmd_rbf, total_var
     
+def compute_sample_based_metrics_1d(a, b):
+    w1 = wasserstein(a.double(), b.double(), power=1)
+    w2 = wasserstein(a.double(), b.double(), power=2)
+    mmd_rbf = mix_rbf_mmd2(a, b, sigma_list=10 ** np.linspace(-2, 0, 10)).item()
+
+    return w1, w2, mmd_rbf
+    

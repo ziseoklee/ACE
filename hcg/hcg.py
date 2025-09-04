@@ -120,8 +120,8 @@ def simulate_hcg_generalized(
     v_fn_list: list,         # list of velocity functions
     s_fn_list: list,         # list of score functions
     gamma_list: list,        # list of gammas (exponents of each q^(i)_t)
-    emb_list: list,          # list of embedding functions
-    trans_emb_list: list,    # list of transpose embedding functions
+    proj_list: list,          # list of embedding functions
+    emb_list: list,    # list of transpose embedding functions
     sigma_fn: callable,
     v_star: callable,        # v_star(X, t)
     t0=0.0, t1=1.0,
@@ -154,9 +154,9 @@ def simulate_hcg_generalized(
         sigma_t = sigma_fn(t)
 
         v_star_t = v_star(x, t)
-        s_star_t = sum([gamma_list[i] * trans_emb_list[i](s_fn_list[i](emb_list[i](x), t)) for i in range(len(gamma_list))])
+        s_star_t = sum([gamma_list[i] * emb_list[i](s_fn_list[i](proj_list[i](x), t)) for i in range(len(gamma_list))])
         div_v_star_t = divergence(v_star, x, t)
-        other_terms = sum([gamma_list[i]*(-divergence(lambda _x, _t: trans_emb_list[i](v_fn_list[i](emb_list[i](_x), _t)), x, t) + torch.sum((v_star_t - trans_emb_list[i](v_fn_list[i](emb_list[i](x), t))) * trans_emb_list[i](s_fn_list[i](emb_list[i](x), t)), dim=1, keepdim=True)) for i in range(len(gamma_list) )])
+        other_terms = sum([gamma_list[i]*(-divergence(lambda _x, _t: emb_list[i](v_fn_list[i](proj_list[i](_x), _t)), x, t) + torch.sum((v_star_t - emb_list[i](v_fn_list[i](proj_list[i](x), t))) * emb_list[i](s_fn_list[i](proj_list[i](x), t)), dim=1, keepdim=True)) for i in range(len(gamma_list) )])
 
         drift_t = v_star_t + 0.5 * sigma_t**2 * (s_star_t)
         noise = torch.randn_like(x) * (sigma_t * torch.sqrt(dt))

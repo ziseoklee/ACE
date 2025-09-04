@@ -73,12 +73,12 @@ for i in tqdm([0,1,2,3,4]):
             lambda x, t: s3_fn(x, t, torch.full((x.size(0), 1), B, device=x.device))         # s3(Z|B)
         ],
         gamma_list=[1, -1, 1],     # from log-weight increment in simulate_hcg
-        emb_list=[
+        proj_list=[
             lambda z: z[:, :1],    # project to X
             lambda z: z[:, :1],    # project to X
             lambda z: z            # identity for Z
         ],
-        trans_emb_list=[
+        emb_list=[
             lambda x: torch.cat([x, torch.zeros(x.size(0), 1, device=x.device)], dim=1),  # embed X→Z
             lambda x: torch.cat([x, torch.zeros(x.size(0), 1, device=x.device)], dim=1),  # embed X→Z
             lambda z: z  # identity
@@ -127,8 +127,8 @@ for i in tqdm([0,1,2,3,4]):
         lambda z, t: s3_fn(z, t, torch.full((z.size(0), 1), B, device=z.device))   # already 2D
     ]
     # pass identity projections since all are now 2D
+    proj_list = [lambda z: z, lambda z: z, lambda z: z]
     emb_list = [lambda z: z, lambda z: z, lambda z: z]
-    trans_emb_list = [lambda z: z, lambda z: z, lambda z: z]
     # v_star: extend original v1 in x and zero in y
     v_star = lambda z, t: v3_fn(z, t, torch.full((z.size(0), 1), B, device=z.device))
     #lambda z, t: torch.cat([ v1_fn(z[:, :1], t, torch.full((z.size(0), 1), A, device=z.device)), torch.zeros(z.size(0), 1, device=z.device) ], dim=1)
@@ -140,8 +140,8 @@ for i in tqdm([0,1,2,3,4]):
         v_fn_list=v_fn_list,
         s_fn_list=s_fn_list,
         gamma_list=[1, -1, 1],     # from log-weight increment in simulate_hcg
+        proj_list=proj_list,
         emb_list=emb_list,
-        trans_emb_list=trans_emb_list,
         sigma_fn=sigma_fn,
         v_star=v_star,
         t0=0.0, t1=1.0, n_steps=1000,
@@ -180,11 +180,11 @@ for i in tqdm([0,1,2,3,4]):
             lambda x, t: s3_fn(x, t, torch.full((x.size(0), 1), B, device=x.device))         # s3(Z|B)
         ],
         gamma_list=[1, 1],     # from log-weight increment in simulate_hcg
-        emb_list=[
+        proj_list=[
             lambda z: z[:, :1],    # project to X
             lambda z: z            # identity for Z
         ],
-        trans_emb_list=[
+        emb_list=[
             lambda x: torch.cat([x, torch.zeros(x.size(0), 1, device=x.device)], dim=1),  # embed X→Z
             lambda z: z  # identity
         ],
@@ -228,8 +228,8 @@ for i in tqdm([0,1,2,3,4]):
         lambda z, t: torch.cat([ s1_fn(z[:, :1], t, torch.full((z.size(0), 1), A, device=z.device)), s_f(z[:, 1:2]) ], dim=1),
         lambda z, t: s3_fn(z, t, torch.full((z.size(0), 1), B, device=z.device))   # already 2D
     ]
+    proj_list = [lambda z: z, lambda z: z]
     emb_list = [lambda z: z, lambda z: z]
-    trans_emb_list = [lambda z: z, lambda z: z]
     v_star = lambda z, t: v3_fn(z, t, torch.full((z.size(0), 1), B, device=z.device))
 
 
@@ -239,8 +239,8 @@ for i in tqdm([0,1,2,3,4]):
         v_fn_list=v_fn_list,
         s_fn_list=s_fn_list,
         gamma_list=[1, 1],     # from log-weight increment in simulate_hcg
+        proj_list=proj_list,
         emb_list=emb_list,
-        trans_emb_list=trans_emb_list,
         sigma_fn=sigma_fn,
         v_star=v_star,
         t0=0.0, t1=1.0, n_steps=1000,
@@ -277,12 +277,12 @@ for i in tqdm([0,1,2,3,4]):
             lambda x, t: s3_fn(x, t, torch.full((x.size(0), 1), B, device=x.device))         # s3(Z|B)
         ],
         gamma_list=[1, -1, 1],     # from log-weight increment in simulate_hcg
-        emb_list=[
+        proj_list=[
             lambda z: z[:, :1],    # project to X
             lambda z: z[:, :1],    # project to X
             lambda z: z            # identity for Z
         ],
-        trans_emb_list=[
+        emb_list=[
             lambda x: torch.cat([x, torch.zeros(x.size(0), 1, device=x.device)], dim=1),  # embed X→Z
             lambda x: torch.cat([x, torch.zeros(x.size(0), 1, device=x.device)], dim=1),  # embed X→Z
             lambda z: z  # identity
@@ -322,11 +322,11 @@ for i in tqdm([0,1,2,3,4]):
             lambda x, t: s3_fn(x, t, torch.full((x.size(0), 1), B, device=x.device))         # s3(Z|B)
         ],
         gamma_list=[1, 1],     # from log-weight increment in simulate_hcg
-        emb_list=[
+        proj_list=[
             lambda z: z[:, :1],    # project to X
             lambda z: z            # identity for Z
         ],
-        trans_emb_list=[
+        emb_list=[
             lambda x: torch.cat([x, torch.zeros(x.size(0), 1, device=x.device)], dim=1),  # embed X→Z
             lambda z: z  # identity
         ],
