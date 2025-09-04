@@ -15,6 +15,7 @@ __pycache__/
 
 # Ignore any directory with "experiment" in its name
 **/*experiment*/
+**/*models*/
 
 # Log files
 *.log

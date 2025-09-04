@@ -16,14 +16,14 @@ torch.manual_seed(0); random.seed(0); np.random.seed(0)
 print("device →", device)
 
 ### Run this ONCE per experiment
-new_experiment = False  # Set to False to reuse an old experiment ID
+new_experiment = True  # Set to False to reuse an old experiment ID
 if new_experiment:  # Run the experiment with the current date and time as the experiment ID
     experiment_id = f"experiment_gmm_{datetime.now().strftime('%Y%m%d')}" #_%H%M%S
     os.makedirs(experiment_id, exist_ok=True)
 else:
     experiment_id = "experiment_gmm_20250901"  # Use a fixed ID for reproducibility
 
-bs = 5000
+bs = 10000
 
 
 import numpy as np
@@ -449,7 +449,7 @@ for i in tqdm([0,1,2,3,4]):
     # Product of Experts
 
     print("Running HCG p1p2")
-    x0 = torch.randn(bs, 2).to("cuda")  # (X, Y) sample
+    x0 = (1/torch.sqrt(torch.tensor(2))) * torch.randn(bs, 2).to("cuda")  # (X, Y) sample
 
     samples, logw_final, logw_history, sample_history = simulate_hcg_generalized(
         x0=x0, 
@@ -494,7 +494,7 @@ for i in tqdm([0,1,2,3,4]):
 
 
     print("Running FKC p1p2")
-    x0 = torch.randn(bs, 2).to("cuda")  # (X, Y) sample
+    x0 = (1/torch.sqrt(torch.tensor(2))) * torch.randn(bs, 2).to("cuda")  # (X, Y) sample
 
     # choose f(y) = N(0, 1)  => score s_f(y) = -y
     def s_f(y):           # y has shape (bs,1)
@@ -588,7 +588,7 @@ for i in tqdm([0,1,2,3,4]):
     
     
     print("Running Target Score p1p2")
-    x0 = torch.randn(bs, 2).to("cuda")  # (X, Y) sample
+    x0 = (1/torch.sqrt(torch.tensor(2))) * torch.randn(bs, 2).to("cuda")  # (X, Y) sample
 
     samples, logw_final, logw_history, sample_history = simulate_hcg_generalized(
         x0=x0, 
@@ -636,3 +636,27 @@ for i in tqdm([0,1,2,3,4]):
 
     df = pd.DataFrame(results, columns=["Method", "W1", "W2", "MMD", "TV"])
     df.to_csv(f"{experiment_id}/results_gmm.csv", index=False)
+
+import os
+from datetime import datetime
+import pandas as pd
+import numpy as np
+
+
+exp_type = "gmm"  # Options: "checker", "gmm"
+
+# Load results 
+result_csv_path = f"{experiment_id}/results_{exp_type}.csv"
+results_csv = pd.read_csv(result_csv_path)
+print(f"Results loaded from {result_csv_path}")
+stats_by_method = results_csv.groupby('Method').agg({
+    'W1': ['mean', 'std'],
+    'W2': ['mean', 'std'],
+    'MMD': ['mean', 'std'],
+    'TV': ['mean', 'std']
+}).reset_index()
+print(stats_by_method)
+# Save stats to a new CSV
+stats_csv_path = f"{experiment_id}/stats_summary_{exp_type}.csv"
+stats_by_method.to_csv(stats_csv_path, index=False)
+print(f"Stats summary saved to {stats_csv_path}")

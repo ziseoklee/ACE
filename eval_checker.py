@@ -20,27 +20,27 @@ print("device →", device)
 results = []
 
 ### Run this ONCE per experiment
-new_experiment = False  # Set to False to reuse an old experiment ID
+new_experiment = True  # Set to False to reuse an old experiment ID
 if new_experiment:  # Run the experiment with the current date and time as the experiment ID
-    experiment_id = f"experiment_{datetime.now().strftime('%Y%m%d')}" #_%H%M%S
+    experiment_id = f"experiment_checker_{datetime.now().strftime('%Y%m%d')}" #_%H%M%S
     os.makedirs(experiment_id, exist_ok=True)
 else:
-    experiment_id = "experiment_20250830"  # Use a fixed ID for reproducibility
+    experiment_id = "experiment_checker_20250830"  # Use a fixed ID for reproducibility
 
 
-bs = 5000
+bs = 10000
 A, B = 1, 1  # Conditions to use for training
 # plot ground truth
 samples_gt = ground_truth_hcg(bs, cond_A=A, cond_B=B).cpu().numpy()
 plot_diagnostics(samples_gt, torch.zeros(bs), [torch.zeros(bs)], save_name=f"{experiment_id}/ground_truth")
 
 # Load all the models
-u_model1 = MLPInstFlexible(z_dim=1, cond_dim=1, width=256, depth=4, output_dim=1).to(device); u_model1.load_state_dict(torch.load(f"{experiment_id}/u_model1_X_given_A.pth")); u_model1.eval()
-s_model1 = MLPInstFlexible(z_dim=1, cond_dim=1, width=256, depth=4, output_dim=1).to(device); s_model1.load_state_dict(torch.load(f"{experiment_id}/s_model1_X_given_A.pth")); s_model1.eval()
-u_model2 = MLPInstFlexible(z_dim=2, cond_dim=1, width=256, depth=4, output_dim=2).to(device); u_model2.load_state_dict(torch.load(f"{experiment_id}/u_model2_XY_given_B.pth")); u_model2.eval()
-s_model2 = MLPInstFlexible(z_dim=2, cond_dim=1, width=256, depth=4, output_dim=2).to(device); s_model2.load_state_dict(torch.load(f"{experiment_id}/s_model2_XY_given_B.pth")); s_model2.eval()
-u_model3 = MLPInstFlexible(z_dim=1, cond_dim=0, width=256, depth=4, output_dim=1).to(device); u_model3.load_state_dict(torch.load(f"{experiment_id}/u_model3_X.pth")); u_model3.eval()
-s_model3 = MLPInstFlexible(z_dim=1, cond_dim=0, width=256, depth=4, output_dim=1).to(device); s_model3.load_state_dict(torch.load(f"{experiment_id}/s_model3_X.pth")); s_model3.eval()
+u_model1 = MLPInstFlexible(z_dim=1, cond_dim=1, width=256, depth=4, output_dim=1).to(device); u_model1.load_state_dict(torch.load(f"models/u_model1_X_given_A.pth")); u_model1.eval()
+s_model1 = MLPInstFlexible(z_dim=1, cond_dim=1, width=256, depth=4, output_dim=1).to(device); s_model1.load_state_dict(torch.load(f"models/s_model1_X_given_A.pth")); s_model1.eval()
+u_model2 = MLPInstFlexible(z_dim=2, cond_dim=1, width=256, depth=4, output_dim=2).to(device); u_model2.load_state_dict(torch.load(f"models/u_model2_XY_given_B.pth")); u_model2.eval()
+s_model2 = MLPInstFlexible(z_dim=2, cond_dim=1, width=256, depth=4, output_dim=2).to(device); s_model2.load_state_dict(torch.load(f"models/s_model2_XY_given_B.pth")); s_model2.eval()
+u_model3 = MLPInstFlexible(z_dim=1, cond_dim=0, width=256, depth=4, output_dim=1).to(device); u_model3.load_state_dict(torch.load(f"models/u_model3_X.pth")); u_model3.eval()
+s_model3 = MLPInstFlexible(z_dim=1, cond_dim=0, width=256, depth=4, output_dim=1).to(device); s_model3.load_state_dict(torch.load(f"models/s_model3_X.pth")); s_model3.eval()
 
 def v1_fn(x, t, A): return u_model1(x, t, A)
 def s1_fn(x, t, A): return s_model1(x, t, A)
@@ -165,7 +165,7 @@ for i in tqdm([0,1,2,3,4]):
     # Product of Experts
 
     print("Running HCG p1p2")
-    x0 = torch.randn(bs, 2).to("cuda")  # (X, Y) sample
+    x0 = (1/torch.sqrt(torch.tensor(2))) * torch.randn(bs, 2).to("cuda")  # (X, Y) sample
     A, B = 1, 1  # Conditioning values
 
     samples, logw_final, logw_history, sample_history = simulate_hcg_generalized(
@@ -211,7 +211,7 @@ for i in tqdm([0,1,2,3,4]):
 
 
     print("Running FKC p1p2")
-    x0 = torch.randn(bs, 2).to("cuda")  # (X, Y) sample
+    x0 = (1/torch.sqrt(torch.tensor(2))) * torch.randn(bs, 2).to("cuda")  # (X, Y) sample
     A, B = 1, 1  # Conditioning values
 
     # choose f(y) = N(0, 1)  => score s_f(y) = -y
@@ -307,7 +307,7 @@ for i in tqdm([0,1,2,3,4]):
     
     
     print("Running Target Score p1p2")
-    x0 = torch.randn(bs, 2).to("cuda")  # (X, Y) sample
+    x0 = (1/torch.sqrt(torch.tensor(2))) * torch.randn(bs, 2).to("cuda")  # (X, Y) sample
     A, B = 1, 1  # Conditioning values
 
     samples, logw_final, logw_history, sample_history = simulate_hcg_generalized(
@@ -356,3 +356,28 @@ for i in tqdm([0,1,2,3,4]):
 
     df = pd.DataFrame(results, columns=["Method", "W1", "W2", "MMD", "TV"])
     df.to_csv(f"{experiment_id}/results_checker.csv", index=False)
+
+
+import os
+from datetime import datetime
+import pandas as pd
+import numpy as np
+
+
+exp_type = "checker"  # Options: "checker", "gmm"
+
+# Load results 
+result_csv_path = f"{experiment_id}/results_{exp_type}.csv"
+results_csv = pd.read_csv(result_csv_path)
+print(f"Results loaded from {result_csv_path}")
+stats_by_method = results_csv.groupby('Method').agg({
+    'W1': ['mean', 'std'],
+    'W2': ['mean', 'std'],
+    'MMD': ['mean', 'std'],
+    'TV': ['mean', 'std']
+}).reset_index()
+print(stats_by_method)
+# Save stats to a new CSV
+stats_csv_path = f"{experiment_id}/stats_summary_{exp_type}.csv"
+stats_by_method.to_csv(stats_csv_path, index=False)
+print(f"Stats summary saved to {stats_csv_path}")
