@@ -185,4 +185,3 @@ def plot_diagnostics(samples, logw_final, logw_history, save_name="diagnostics",
         plt.savefig(f"{save_name}_diagnostics.png", dpi=300)
         plt.show()
         plt.close()
-
