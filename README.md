@@ -5,8 +5,8 @@ Ratio-of-densities steering for Diffusion/Flow matching models:
 * Compositional Image Generation
 
 ```bash
-python3 -m venv Image-HCG
-source Image-HCG/bin/activate
+python3 -m venv ace
+source ace/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
