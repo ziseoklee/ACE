@@ -1,26 +1,12 @@
-# 2D-HCG
-2D/Image Heterogeneous Conditional Generation Examples
+# ACE: Adaptive path Correction with Exponents
+Ratio-of-densities steering for Diffusion/Flow matching models:
+* 2D Synthetic Dataset
+* Molecule optimization
+* Compositional Image Generation
 
 ```bash
 python3 -m venv Image-HCG
 source Image-HCG/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
-```
----
-
-# Conda does not work well sometimes
-
-* Beginning a new session
-```bash
-conda update -n base -c conda-forge conda
-conda env create -f environment.yml
-conda activate 2D-HCG
-```
-
-* Ending a session
-```bash
-conda env export -n 2D-HCG --from-history > environment.yml
-conda deactivate
-conda env remove --name 2D-HCG
 ```
