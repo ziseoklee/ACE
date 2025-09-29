@@ -278,7 +278,8 @@ def simulate_hcg_generalized(
     device="cuda",
     resample=True,
     ess_threshold=0.5,
-    print_resample_history=False
+    print_resample_history=False,
+    t_max = 0.85
 ):
     """
     Simulates a heterogeneous particle system using the generalized Feynman-Kac corrector
@@ -325,8 +326,8 @@ def simulate_hcg_generalized(
 
     logw_history, sample_history, resample_history = [], [], []
 
-    for i in range(n_steps):
-        t = times[i].expand(bs, 1)
+    for it in range(n_steps):
+        t = times[it].expand(bs, 1)
         sigma_t = sigma_fn(t)
         v_star_t = v_star(x, t)
 
@@ -369,11 +370,11 @@ def simulate_hcg_generalized(
         
         logw_history.append(logw.clone().cpu())
 
-        if resample:
+        if resample and it < n_steps * t_max:
             weights = F.softmax(logw.squeeze(-1), dim=0)
             ess = 1.0 / torch.sum(weights**2)
-            if ess < ess_threshold * bs or i == n_steps - 5:
-                resample_history.append(i)
+            if ess < ess_threshold * bs or it == n_steps - 5:
+                resample_history.append(it)
                 idx = torch.multinomial(weights, bs, replacement=True)
                 x = x[idx]
                 logw = torch.zeros_like(logw)
@@ -386,4 +387,4 @@ def simulate_hcg_generalized(
     if print_resample_history:
         return x, logw, logw_history, sample_history, resample_history
     else:
-        return x, logw, log_history, sample_history
+        return x, logw, logw_history, sample_history

@@ -1,0 +1,32 @@
+{
+  "custom_poly": {
+    "alpha_t": "lambda t: (1.0 - torch.as_tensor(t)) * torch.pow(torch.as_tensor(t) + (1.0 - 2 * torch.as_tensor(t)), 2)",
+    "beta_t": "lambda t: torch.as_tensor(t)",
+    "d_alpha_t": "lambda t: -4.0 + 14.0 * torch.as_tensor(t) - 12.0 * torch.as_tensor(t)**2",
+    "d_beta_t": "lambda t: torch.ones_like(torch.as_tensor(t))"
+  },
+  "exponential": {
+    "alpha_t": "lambda t: torch.exp(-5.0 * torch.as_tensor(t))",
+    "beta_t": "lambda t: torch.sqrt(1 - torch.exp(-2 * 5.0 * torch.as_tensor(t)))",
+    "d_alpha_t": "lambda t: -5.0 * torch.exp(-5.0 * torch.as_tensor(t))",
+    "d_beta_t": "lambda t: 5.0 * torch.exp(-2 * 5.0 * torch.as_tensor(t))/(torch.sqrt(1 - torch.exp(-2 * 5.0 * torch.as_tensor(t))) + 1e-8)"
+  },
+  "variance_exploding": {
+    "alpha_t": "lambda t: torch.ones_like(torch.as_tensor(t))",
+    "beta_t": "lambda t: 0.01 * ((50.0/0.01) ** torch.as_tensor(t))",
+    "d_alpha_t": "lambda t: torch.zeros_like(torch.as_tensor(t))",
+    "d_beta_t": "lambda t: 0.01 * ((50.0/0.01) ** torch.as_tensor(t)) * torch.log(torch.tensor(50.0/0.01))"
+  },
+    "cosine": {
+    "alpha_t": "lambda t: torch.sqrt((torch.cos(torch.as_tensor(((torch.as_tensor(t)+0.008)/(1+0.008))*torch.pi/2)**2))/(torch.cos(torch.tensor(0.008/(1+0.008) * torch.pi / 2))**2))",
+    "beta_t": "lambda t: torch.sqrt(1 - (torch.cos(((torch.as_tensor(t)+0.008)/(1+0.008))*torch.pi/2)**2)/(torch.cos(torch.tensor(0.008/(1+0.008) * torch.pi / 2))**2))",
+    "d_alpha_t": "lambda t: 0.5 * (-(torch.sin(((torch.as_tensor(t)+0.008)/(1+0.008))*torch.pi/2) * torch.cos(((torch.as_tensor(t)+0.008)/(1+0.008))*torch.pi/2) * (torch.pi/(1+0.008)))/(torch.cos(torch.tensor(0.008/(1+0.008) * torch.pi / 2))**2)) / (torch.sqrt((torch.cos(((torch.as_tensor(t)+0.008)/(1+0.008))*torch.pi/2)**2)/(torch.cos(torch.tensor(0.008/(1+0.008) * torch.pi / 2))**2)) + 1e-8)",
+    "d_beta_t": "lambda t: -0.5 * (-(torch.sin(((torch.as_tensor(t)+0.008)/(1+0.008))*torch.pi/2) * torch.cos(((torch.as_tensor(t)+0.008)/(1+0.008))*torch.pi/2) * (torch.pi/(1+0.008)))/(torch.cos(torch.tensor(0.008/(1+0.008) * torch.pi / 2))**2)) / (torch.sqrt(1 - (torch.cos(((torch.as_tensor(t)+0.008)/(1+0.008))*torch.pi/2)**2)/(torch.cos(torch.tensor(0.008/(1+0.008) * torch.pi / 2))**2)) + 1e-8)"
+  },
+    "denovo": {
+    "alpha_t": "lambda t: 1 - torch.as_tensor(t)**2",
+    "beta_t": "lambda t: torch.sqrt(1 - (1 - torch.as_tensor(t)**2)**2)",
+    "d_alpha_t": "lambda t: -2*torch.as_tensor(t)",
+    "d_beta_t": "lambda t: (2*torch.as_tensor(t)*(1 - torch.as_tensor(t)**2))/(torch.sqrt(2*torch.as_tensor(t)**2 - torch.as_tensor(t)**4 + 1e-8))"
+  }
+}

@@ -400,7 +400,7 @@ class Interpolant:
     Manages the interpolation schedule (alpha_t, beta_t) and their derivatives.
     This allows for easy swapping of different schedules for flow matching.
     """
-    def __init__(self, alpha_t=None, beta_t=None, d_alpha_t=None, d_beta_t=None):
+    def __init__(self, alpha_t=None, beta_t=None, d_alpha_t=None, d_beta_t=None, name=None):
         """
         Initializes the interpolant with custom or default schedules.
 
@@ -414,6 +414,8 @@ class Interpolant:
         self.beta_t = beta_t if beta_t is not None else default_beta_t
         self.d_alpha_t = d_alpha_t if d_alpha_t is not None else default_d_alpha_t
         self.d_beta_t = d_beta_t if d_beta_t is not None else default_d_beta_t
+        self.name = name if name is not None else "default"
+
 
 # --- Main Flow Matcher Class ---
 
@@ -789,6 +791,7 @@ class FlowMatcher:
                 self.plot_state(sample_fn, self.loss_history, step, suptitle=True,
                                 n_step=100, noise_level=0.5, show_samples=5000,
                                 cond_val=plot_cond_val)
+                plt.close('all')
 
     @torch.no_grad()
     def sample(self, num_samples, n_step=10, noise_level=1.0, cond_val=None):
@@ -867,7 +870,7 @@ class FlowMatcher:
         plt.show()
 
 
-def plot_path_trajectories(sample_history, n_frame=4, resample_history=None, divergence_points=None, hard_lim=None, experiment_id="VISUALS", name="gmm_path", deg=-60, num_trajectory_points=20):
+def plot_path_trajectories(sample_history, n_frame=4, resample_history=None, divergence_points=None, hard_lim=None, experiment_id="VISUALS", name="gmm_path", deg=-60, num_trajectory_points=20, method_figure=False, interval_d=30):
     import numpy as np
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
@@ -896,6 +899,13 @@ def plot_path_trajectories(sample_history, n_frame=4, resample_history=None, div
     if resample_history is not None:
         selected_steps.extend(resample_history)
     selected_steps = sorted(list(set(selected_steps)))
+
+    if method_figure:
+        selected_steps = resample_history
+        before_resample = [t-interval_d for t in selected_steps]
+        # after_resample = [t+20 for t in selected_steps]
+        selected_steps = before_resample + selected_steps + [0, n_steps-1] #+ after_resample
+        selected_steps = sorted(list(set(selected_steps)))
 
     n_trajectories = num_trajectory_points
     trajectory_indices = np.random.choice(n_samples, size=n_trajectories, replace=False)
@@ -960,10 +970,17 @@ def plot_path_trajectories(sample_history, n_frame=4, resample_history=None, div
                     )
         
         pts = sample_history[current_step].cpu().numpy()
-        ax.scatter(
-            np.ones(n_samples) * current_step, pts[:, 0], pts[:, 1],
-            s=1, alpha=0.5, color='tab:blue', depthshade=False, zorder=zorder_base + 1
-        )
+        if method_figure and current_step in before_resample:
+            ax.scatter(
+                np.ones(n_samples) * current_step, pts[:, 0], pts[:, 1],
+                s=1, alpha=0.5, color='tab:green', depthshade=False, zorder=zorder_base + 1
+            )
+        
+        else: 
+            ax.scatter(
+                np.ones(n_samples) * current_step, pts[:, 0], pts[:, 1],
+                s=1, alpha=0.5, color='tab:blue', depthshade=False, zorder=zorder_base + 1
+            )
 
         if resample_history and current_step in resample_history:
             ax.scatter(
