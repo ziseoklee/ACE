@@ -261,6 +261,7 @@ def simulate_hcg_generalized_prev(
 import torch
 import torch.nn.functional as F
 import numpy as np
+from tqdm import tqdm
 
 @torch.no_grad()
 def simulate_hcg_generalized(
@@ -279,7 +280,9 @@ def simulate_hcg_generalized(
     resample=True,
     ess_threshold=0.5,
     print_resample_history=False,
-    t_max = 0.85
+    t_max = 0.85,
+    t_min = 0.00,
+    t_list = None
 ):
     """
     Simulates a heterogeneous particle system using the generalized Feynman-Kac corrector
@@ -326,7 +329,7 @@ def simulate_hcg_generalized(
 
     logw_history, sample_history, resample_history = [], [], []
 
-    for it in range(n_steps):
+    for it in tqdm(range(n_steps)):
         t = times[it].expand(bs, 1)
         sigma_t = sigma_fn(t)
         v_star_t = v_star(x, t)
@@ -370,17 +373,25 @@ def simulate_hcg_generalized(
         
         logw_history.append(logw.clone().cpu())
 
-        if resample and it < n_steps * t_max:
-            weights = F.softmax(logw.squeeze(-1), dim=0)
-            ess = 1.0 / torch.sum(weights**2)
-            if ess < ess_threshold * bs or it == n_steps - 5:
+        if resample:
+            if (t_list is None and it < n_steps * t_max and it > n_steps * t_min):
+                weights = F.softmax(logw.squeeze(-1), dim=0)
+                ess = 1.0 / torch.sum(weights**2)
+                if ess < ess_threshold * bs or it == n_steps - 5:
+                    resample_history.append(it)
+                    idx = torch.multinomial(weights, bs, replacement=True)
+                    x = x[idx]
+                    logw = torch.zeros_like(logw)
+                    # --- GENERALIZATION: Resample log_q_i list ---
+                    log_q_i_list = [log_q[idx] for log_q in log_q_i_list]
+                    # --- END GENERALIZATION ---
+            elif (t_list is not None and (it*1.0)/n_steps in t_list):
+                weights = F.softmax(logw.squeeze(-1), dim=0)
                 resample_history.append(it)
                 idx = torch.multinomial(weights, bs, replacement=True)
                 x = x[idx]
                 logw = torch.zeros_like(logw)
-                # --- GENERALIZATION: Resample log_q_i list ---
                 log_q_i_list = [log_q[idx] for log_q in log_q_i_list]
-                # --- END GENERALIZATION ---
                 
         sample_history.append(x.clone().cpu())
 

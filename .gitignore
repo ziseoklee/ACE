@@ -23,4 +23,8 @@ __pycache__/
 Image-HCG/
 outputs/
 ignore.ipynb
-core/
+venv/
+venv6000/
+_ICLR26_SUBMISSION_RELATED_FILES/*
+VISUALS/
+_eval_results_database_/
