@@ -8,3 +8,6 @@ pandas
 pot
 tqdm
 IPython
+ipykernel
+scikit-learn
+seaborn

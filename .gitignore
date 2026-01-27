@@ -20,11 +20,11 @@ __pycache__/
 # Log files
 *.log
 
-Image-HCG/
+2d_synthetic/
+ace_env/
 outputs/
-ignore.ipynb
-venv/
-venv6000/
-_ICLR26_SUBMISSION_RELATED_FILES/*
-VISUALS/
-_eval_results_database_/
+PretrainedToyModels/*
+ace_demo_runs_*/
+ace_eval_runs_*/
+repo/*
+experiments/*

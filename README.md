@@ -2,7 +2,12 @@
 
 **Authors:** Ziseok Lee, Minyeong Hwang, Sanghyun Jo, Wooyeol Lee, Jihyung Ko, Young Bin Park, Jae-Mun Choi, Eunho Yang, Kyungsu Kim
 
-[[arXiv](https://arxiv.org/abs/2512.10339)] [[PDF](https://arxiv.org/pdf/2512.10339)]
+[![arXiv](https://img.shields.io/badge/arXiv-2512.10339-b31b1b.svg)](https://arxiv.org/abs/2512.10339)
+[![PDF](https://img.shields.io/badge/PDF-Download-red)](https://arxiv.org/pdf/2512.10339)
+[![Project Page](https://img.shields.io/badge/Project-Website-blue)](https://ziseoklee.github.io/projects/ACE/)
+[![GitHub Code](https://img.shields.io/badge/GitHub-Code-black?logo=github)](https://github.com/ziseoklee/ACE/)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/ziseoklee/ACE/blob/main/ace_demo.ipynb)
+[![GitHub Stars](https://img.shields.io/github/stars/ziseoklee/ACE?style=social)](https://github.com/ziseoklee/ACE/)
 
 ## Abstract
 
@@ -12,7 +17,7 @@ This collapse arises systematically when composing heterogeneous models trained 
 1.  **Path Existence Criterion**: We derive a criterion that predicts exactly when collapse occurs based on noise schedules and exponents.
 2.  **Adaptive path Correction with Exponents (ACE)**: We introduce ACE, which extends Feynman-Kac steering to time-varying exponents to guarantee a valid probability path.
 
-## Repository Structure
+## [Need to Update] Repository Structure
 
 This repository is organized into three main sections corresponding to the experiments in the paper:
 
@@ -27,8 +32,10 @@ This repository is organized into three main sections corresponding to the exper
 We provide a shared environment for all experiments.
 
 **Prerequisites**
-* [TODO]
-* [TODO]
+For the toy experiments, run a pretraining code which will save pretrained checkpoints under the directory `/PretrainedToyModels`. Training takes around 30 minutes on a single A6000 GPU.
+```bash
+python ace_lib/train_toy_models.py
+```
 
 **Setup**
 
@@ -38,8 +45,8 @@ git clone https://github.com/ziseoklee/ACE.git
 cd ACE
 
 # Create a virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+python3 -m venv ace_env
+source ace_env/bin/activate  # On Windows use `ace_env\Scripts\activate`
 
 # Install dependencies
 pip install -r requirements.txt
