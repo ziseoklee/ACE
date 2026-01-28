@@ -19,7 +19,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 set_seed(0)
 print("device: ", device)
 
-exp_dir = get_experiment_dir(f"ace_eval_runs_{datetime.now().strftime('%Y%m%d')}", "checker")
+exp_dir = get_experiment_dir(f"ace_eval_runs_{datetime.now().strftime('%Y%m%d')}", f"checker_{datetime.now().strftime('%H%M%S')}")
 print(f"Experiment directory: {exp_dir}")
 
 schedule_combination = ["cos_t", "ddpm_linear", "default_linear"]
@@ -156,8 +156,8 @@ for seed in tqdm([0,1,2,3,4]):
     print(results)
     # ===============================================================================
 
-    Bump_Values = [0.0, 10.0, 20.0, 30.0, 50.0, 100.0]
-    Ramp_Values = [0.0, 0.5, 1.0, 1.5, 2.0]
+    Bump_Values = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 100.0]
+    Ramp_Values = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 8.0, 16.0]
     
     for Bump in Bump_Values:
         for Ramp in Ramp_Values:
@@ -199,10 +199,10 @@ for seed in tqdm([0,1,2,3,4]):
     ##################################################################################
     
     df = pd.DataFrame(results, columns=["Method", "seed", "Bump", "Ramp", "weight", "W1", "W2", "MMD", "TV"])
-    df.to_csv(f"{exp_dir}/results_checker_NR_FKC_ACE_multiple_BumpsNRamps.csv", index=False)
+    df.to_csv(f"{exp_dir}/results_checker_NR_FKC_ACE_multiple_configs.csv", index=False)
 
 
-result_csv_path = f"{exp_dir}/results_checker_NR_FKC_ACE_multiple_BumpsNRamps.csv"
+result_csv_path = f"{exp_dir}/results_checker_NR_FKC_ACE_multiple_configs.csv"
 results_csv = pd.read_csv(result_csv_path)
 print(f"Results loaded from {result_csv_path}")
 stats_by_method = results_csv.groupby('Method').agg({
@@ -214,6 +214,6 @@ stats_by_method = results_csv.groupby('Method').agg({
 print(stats_by_method)
 
 # Save stats to a new CSV
-stats_csv_path = f"{exp_dir}/stats_summary_NR_FKC_ACE_multiple_BumpsNRamps.csv"
+stats_csv_path = f"{exp_dir}/stats_summary_NR_FKC_ACE_multiple_configs.csv"
 stats_by_method.to_csv(stats_csv_path, index=False)
 print(f"Stats summary saved to {stats_csv_path}")
