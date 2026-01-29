@@ -570,7 +570,7 @@ class FlowMatcher:
         plt.show()
 
 
-def plot_path_trajectories(sample_history, n_frame=4, resample_history=None, divergence_points=None, hard_lim=None, experiment_id="VISUALS", name="gmm_path", deg=-60, num_trajectory_points=20, method_figure=False, interval_d=30):
+def plot_path_trajectories(sample_history, n_frame=4, resample_history=None, divergence_points=None, hard_lim=None, experiment_id="VISUALS", name="gmm_path", deg=-60, num_trajectory_points=20, method_figure=False, interval_d=30, overwrite_fractions=None):
     import numpy as np
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
@@ -609,6 +609,8 @@ def plot_path_trajectories(sample_history, n_frame=4, resample_history=None, div
         selected_steps = before_resample + selected_steps + [0, n_steps-1] #+ after_resample
         selected_steps = sorted(list(set(selected_steps)))
 
+    if overwrite_fractions is not None:
+        selected_steps = [int(f * (n_steps - 1)) for f in overwrite_fractions]
     n_trajectories = num_trajectory_points
     trajectory_indices = np.random.choice(n_samples, size=n_trajectories, replace=False)
 
