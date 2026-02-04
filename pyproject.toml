@@ -1,0 +1,123 @@
+[project]
+name = "ace"
+description = "Official implementation of the paper 'On the Collapse of Generative Paths: A Criterion and Correction for Diffusion Steering'"
+keywords = [
+    "Generative Models", 
+    "Diffusion Models", 
+    "Flow Matching", 
+    "Stochastic Interpolants", 
+    "Inference-time Steering", 
+    "Classifier-Free Guidance", 
+    "Feynman-Kac Correctors", 
+    "Compositional Generation", 
+    "AI for Science", 
+    "Structure-Based Drug Design", 
+    "Molecular Generation"
+]
+maintainers = [
+    { name = "Ziseok Lee", email = "ziseoklee@snu.ac.kr" }, 
+    { name = "Wooyeol Lee", email = "wooyeol0519@snu.ac.kr" }
+]
+readme = "README.md"
+license.file = "LICENSE"
+version = "0.1.0"
+requires-python = "==3.11.*"
+dependencies = [
+    "ipython==9.10.0",
+    "matplotlib==3.10.8",
+    "pandas==3.0.0",
+    "pot==0.9.6.post1",
+    "torch==2.6.0",
+    "tqdm==4.66.5",
+]
+
+
+[project.urls]
+"project page" = "https://ziseoklee.github.io/projects/ACE/"
+arxiv = "https://arxiv.org/abs/2512.10339"
+
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+
+[tool.setuptools.packages.find]
+where = ["ace_lib/", "molecule/"]
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu124"
+
+[tool.uv.sources]
+torch = { index = "pytorch" }
+
+[tool.ruff]
+# Exclude commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
+
+line-length = 120
+indent-width = 4
+target-version = "py311"
+
+# Enable linting for Jupyter Notebooks
+extend-include = ["*.ipynb"]
+
+[tool.ruff.lint]
+# Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`) codes by default.
+# Additions:
+# - I (Isort): Sort imports automatically.
+# - NPY (NumPy): Specific checks for NumPy usage.
+# - UP (Pyupgrade): Keep syntax modern (performance benefits).
+# - B (Bugbear): Catch subtle bugs (like mutable defaults).
+# - SIM (Simplify): Encourage cleaner logic.
+select = ["E4", "E7", "E9", "F", "I", "NPY", "UP", "B", "SIM"]
+
+ignore = [
+    "E741", # Allow ambiguous variable names (e.g., 'l', 'I') - common in math/physics notation
+]
+
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+# Enable auto-formatting of code examples in docstrings.
+# This ensures examples in your library documentation are valid and formatted.
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
