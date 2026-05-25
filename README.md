@@ -1,6 +1,6 @@
-# On the Collapse of Generative Paths: A Criterion and Correction for Diffusion Steering
+# [ICML 2026] On the Collapse of Generative Paths: A Criterion and Correction for Diffusion Steering
 
-**Authors:** Ziseok Lee, Minyeong Hwang, Sanghyun Jo, Wooyeol Lee, Jihyung Ko, Young Bin Park, Jae-Mun Choi, Eunho Yang, Kyungsu Kim
+**Authors:** Ziseok Lee, Minyeong Hwang, Wooyeol Lee, Sanghyun Jo, Jihyung Ko, Young Bin Park, Jae-Mun Choi, Eunho Yang, Kyungsu Kim
 
 [![arXiv](https://img.shields.io/badge/arXiv-2512.10339-b31b1b.svg)](https://arxiv.org/abs/2512.10339)
 [![PDF](https://img.shields.io/badge/PDF-Download-red)](https://arxiv.org/pdf/2512.10339)
@@ -8,6 +8,9 @@
 [![GitHub Code](https://img.shields.io/badge/GitHub-Code-black?logo=github)](https://github.com/ziseoklee/ACE/)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/ziseoklee/ACE/blob/main/ace_demo.ipynb)
 [![GitHub Stars](https://img.shields.io/github/stars/ziseoklee/ACE?style=social)](https://github.com/ziseoklee/ACE/)
+
+> 🚧 **Work In Progress (Camera-Ready Release)**
+> We are currently finalizing the codebase for official release. The complete repository will be fully available by **May 31, AoE (Anywhere on Earth)**. 
 
 ## Abstract
 
@@ -17,25 +20,19 @@ This collapse arises systematically when composing heterogeneous models trained 
 1.  **Path Existence Criterion**: We derive a criterion that predicts exactly when collapse occurs based on noise schedules and exponents.
 2.  **Adaptive path Correction with Exponents (ACE)**: We introduce ACE, which extends Feynman-Kac steering to time-varying exponents to guarantee a valid probability path.
 
-## [Need to Update] Repository Structure
+## Repository Structure
 
-This repository is organized into three main sections corresponding to the experiments in the paper:
+Once fully released, this repository will be organized into three main sections corresponding to the experiments in our paper:
 
-* **`toy_experiments/`**: Source code for the Synthetic 2D benchmark demonstrating the path existence criterion and collapse modes.
-* **`molecule_experiments/`**: Implementation of ACE for flexible-pose scaffold decoration and molecular design tasks using heterogeneous models.
-* **`image_experiments/`**: Experiments applying diffusion steering and ACE to image generation tasks.
+* **`2d_synthetic/`**: Scripts for the Synthetic 2D benchmark demonstrating the path existence criterion, path collapse, and how ACE repairs collapsed paths.
+* **`molecule/`**: Implementation of ACE for drug design tasks presented in the paper: scaffold decoration and fragment linking.
+* **`image/`**: Experiments applying ACE to compositional image generation.
 
-*Please refer to the `README.md` within each subdirectory for specific usage instructions and pretrained model checkpoints.*
+*Detailed `README.md` files and instructions will be provided within each subdirectory.*
 
 ## Installation
 
 We provide a shared environment for all experiments.
-
-**Prerequisites**
-For the toy experiments, run a pretraining code which will save pretrained checkpoints under the directory `/PretrainedToyModels`. Training takes around 30 minutes on a single A6000 GPU.
-```bash
-python ace_lib/train_toy_models.py
-```
 
 **Setup**
 
@@ -50,40 +47,26 @@ source ace_env/bin/activate  # On Windows use `ace_env\Scripts\activate`
 
 # Install dependencies
 pip install -r requirements.txt
+
 ```
 
-## Usage
-### 1. Toy Experiments
-To reproduce the 2D synthetic benchmark results (Figure [TODO]):
+**Prerequisites (Toy Experiments)**
+To run the pretraining code which will save checkpoints under `/PretrainedToyModels` (Takes ~30 mins on a single RTX A6000):
 
 ```bash
-cd 2d_synthetic
-# [TODO]
-```
-
-### 2. Molecule Experiments
-To run the flexible-pose scaffold decoration:
-```bash
-cd scaffold_decoration
-# [TODO]
-```
-
-### 3. Image Experiments
-To run the image steering corrections:
-
-```bash
-cd image_gen
-# [TODO]
+python ace_lib/train_toy_models.py
 ```
 
 ## Citation
 If you find this code or our paper useful for your research, please cite:
 
-```
-@article{lee2025collapse,
-  title={On the Collapse of Generative Paths: A Criterion and Correction for Diffusion Steering},
-  author={Lee, Ziseok and Hwang, Minyeong and Jo, Sanghyun and Lee, Wooyeol and Ko, Jihyung and Park, Young Bin and Choi, Jae-Mun and Yang, Eunho and Kim, Kyungsu},
-  journal={arXiv preprint arXiv:2512.10339},
-  year={2025}
+```bibtex
+@inproceedings{
+lee2026on,
+title={On the Collapse of Generative Paths: A Criterion and Correction for Diffusion Steering},
+author={Ziseok Lee and Minyeong Hwang and Wooyeol Lee and Jihyung Ko and Young Bin Park and Jae-Mun Choi and Eunho Yang and Kyungsu Kim},
+booktitle={Forty-third International Conference on Machine Learning},
+year={2026},
+url={https://openreview.net/forum?id=emv2qsi3TG}
 }
 ```
