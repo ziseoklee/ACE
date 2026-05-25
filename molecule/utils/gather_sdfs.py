@@ -25,7 +25,3 @@ def gather_sdfs(root_dir):
 if __name__ == "__main__":
     root = input("Enter path to the root output directory: ").strip()
     gather_sdfs(root)
-
-# (3.11.11) (base) ziseok@a100-6-002:/mnt/nas5/AIBL-Research/ziseok/Delete$ python gather_sdfs.py 
-# Enter path to the root output directory: outputs/adrb1_rotated_20250719_131844
-# Gathered 108 .sdf files into outputs/adrb1_rotated_20250719_131844/delete
