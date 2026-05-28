@@ -7,7 +7,7 @@
 [![Project Page](https://img.shields.io/badge/Project-Website-blue)](https://ziseoklee.github.io/projects/ACE/)
 [![GitHub Code](https://img.shields.io/badge/GitHub-Code-black?logo=github)](https://github.com/ziseoklee/ACE/)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/ziseoklee/ACE/blob/main/ace_demo.ipynb)
-[![GitHub Stars](https://img.shields.io/github/stars/ziseoklee/ACE?style=social)](https://github.com/ziseoklee/ACE/)
+[![GitHub Stars](https://shields.io/github/stars/ziseoklee/ACE?style=social)](https://github.com/ziseoklee/ACE/)
 
 > 🚧 **Work In Progress (Camera-Ready Release)**
 > We are currently finalizing the codebase for official release. The complete repository will be fully available by **May 31, AoE (Anywhere on Earth)**. 
