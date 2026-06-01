@@ -9,8 +9,6 @@
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/ziseoklee/ACE/blob/main/ace_demo.ipynb)
 [![GitHub Stars](https://shields.io/github/stars/ziseoklee/ACE?style=social)](https://github.com/ziseoklee/ACE/)
 
-> 🚧 **Work In Progress (Camera-Ready Release)**
-> We are currently finalizing the codebase for official release. The complete repository will be fully available by **May 31, AoE (Anywhere on Earth)**. 
 
 ## Abstract
 
@@ -22,17 +20,17 @@ This collapse arises systematically when composing heterogeneous models trained 
 
 ## Repository Structure
 
-Once fully released, this repository will be organized into three main sections corresponding to the experiments in our paper:
+This repository is organized into three main sections corresponding to the experiments in our paper:
 
 * **`2d_synthetic/`**: Scripts for the Synthetic 2D benchmark demonstrating the path existence criterion, path collapse, and how ACE repairs collapsed paths.
 * **`molecule/`**: Implementation of ACE for drug design tasks presented in the paper: scaffold decoration and fragment linking.
-* **`image/`**: Experiments applying ACE to compositional image generation.
+* **`image/`**: Experiments applying ACE to compositional image generation. We are finalizing the code for the image experiments, which will be available by June 5th.
 
 *Detailed `README.md` files and instructions will be provided within each subdirectory.*
 
 ## Installation
 
-We provide a shared environment for all experiments.
+We provide a shared environment for all experiments. All subdirectories assume that `ace_env` has been activated.
 
 **Setup**
 
@@ -50,19 +48,12 @@ pip install -r requirements.txt
 
 ```
 
-**Prerequisites (Toy Experiments)**
-To run the pretraining code which will save checkpoints under `/PretrainedToyModels` (Takes ~30 mins on a single RTX A6000):
-
-```bash
-python ace_lib/train_toy_models.py
-```
-
 ## Citation
 If you find this code or our paper useful for your research, please cite:
 
 ```bibtex
 @inproceedings{
-lee2026on,
+lee2026collapse,
 title={On the Collapse of Generative Paths: A Criterion and Correction for Diffusion Steering},
 author={Ziseok Lee and Minyeong Hwang and Wooyeol Lee and Jihyung Ko and Young Bin Park and Jae-Mun Choi and Eunho Yang and Kyungsu Kim},
 booktitle={Forty-third International Conference on Machine Learning},
