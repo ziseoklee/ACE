@@ -1,0 +1,10 @@
+[submodule "molecule/src/pretrained_models/DiffSBDD"]
+	path = molecule/src/pretrained_models/DiffSBDD
+	url = git@github.com:arneschneuing/DiffSBDD.git
+[submodule "molecule/src/pretrained_models/e3_diffusion_for_molecules"]
+	path = molecule/src/pretrained_models/e3_diffusion_for_molecules
+	url = git@github.com:ehoogeboom/e3_diffusion_for_molecules.git
+[submodule "molecule/src/pretrained_models/GeoDiff"]
+	path = molecule/src/pretrained_models/GeoDiff
+	url = git@github.com:MinkaiXu/GeoDiff.git
+    branch = pretrain
