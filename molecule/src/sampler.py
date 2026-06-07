@@ -1,0 +1,239 @@
+import functools
+import logging
+from typing import Callable
+
+import numpy as np
+import torch
+from jaxtyping import Float, Int
+from torch.distributions import Normal
+from tqdm import tqdm
+
+from configs.config_sampler import _BaseSamplerConfig
+from src.probability_path import MoEProbabilityPath
+
+logger = logging.getLogger(__name__)
+
+
+def computation_overhead_logger(func):
+    """
+    A decorator to log the computation time and peak VRAM usage of a function.
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if not torch.cuda.is_available():
+            result = func(*args, **kwargs)
+            logger.info("CUDA is not available; skipped VRAM logging.")
+            return result
+
+        device = torch.cuda.current_device()
+
+        torch.cuda.synchronize(device)
+        torch.cuda.reset_peak_memory_stats(device)
+
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+
+        start_event.record()  # pyright: ignore[reportCallIssue]
+
+        try:
+            result = func(*args, **kwargs)
+        finally:
+            end_event.record()  # pyright: ignore[reportCallIssue]
+            torch.cuda.synchronize(device)
+
+            elapsed_time_ms = start_event.elapsed_time(end_event)
+
+            peak_allocated = torch.cuda.max_memory_allocated(device) / 1024**3
+            peak_reserved = torch.cuda.max_memory_reserved(device) / 1024**3
+            current_allocated = torch.cuda.memory_allocated(device) / 1024**3
+            current_reserved = torch.cuda.memory_reserved(device) / 1024**3
+
+            logger.info(f"Computation time: {elapsed_time_ms / 1000:.4f} s")
+            logger.info(f"Peak allocated VRAM: {peak_allocated:.2f} GB")
+            logger.info(f"Peak reserved VRAM: {peak_reserved:.2f} GB")
+            logger.info(f"Current allocated VRAM: {current_allocated:.2f} GB")
+            logger.info(f"Current reserved VRAM: {current_reserved:.2f} GB")
+
+        return result
+
+    return wrapper
+
+
+class MoEPDESampler:
+    """
+    A sampler for Mixture-of-Experts Probability Paths (MoE-PDEs) using Euler-Maruyama discretization and optional resampling.
+    """
+
+    @staticmethod
+    def initialize_particles(
+        moe_probability_path: MoEProbabilityPath,
+        prior_sbdd: torch.Tensor,
+        batch_size: int,
+        device: str,
+    ):
+        """
+        Initialize x0, logq, and log weights tensor for the sampler.
+        """
+        sample_size: int = moe_probability_path.sample_size
+        x0: Float[torch.Tensor, "B D"] = torch.randn(batch_size, sample_size).to(device)
+        # !WARNING!: we assume the 3-rd expert is the DiffSBDD expert.
+        mask_sbdd = moe_probability_path.q_list[2].mask_list[0]
+        x0[..., mask_sbdd] = prior_sbdd
+
+        standard_normal_dist = Normal(loc=0.0, scale=1.0)
+        logq = standard_normal_dist.log_prob(x0)
+        num_experts = len(moe_probability_path.q_list)
+        logq: Float[torch.Tensor, "B E 1"] = logq.sum(dim=-1, keepdim=True).repeat(1, num_experts).unsqueeze(2)
+
+        logweight: Float[torch.Tensor, " B"] = torch.zeros(batch_size, device=device)
+
+        return x0, logq, logweight
+
+    @classmethod
+    @computation_overhead_logger
+    def sample(
+        cls,
+        moe_probability_path: MoEProbabilityPath,
+        sampler_cfg: _BaseSamplerConfig,
+        interleave_fn: Callable[[torch.Tensor, np.ndarray], torch.Tensor],  # (x, choice) -> x
+        prior_sbdd: torch.Tensor,
+    ):
+        batch_size = sampler_cfg.batch_size
+        device = sampler_cfg.device
+        num_sampling_steps = sampler_cfg.num_sampling_steps
+        dt = 1 / num_sampling_steps
+        timesteps = torch.arange(0, 1, dt).to(device)
+
+        use_logq = sampler_cfg.use_logq
+        dlogq_calc_interval = sampler_cfg.dlogq_calc_interval
+        dlogq_noise_scale = sampler_cfg.dlogq_noise_scale
+
+        do_resample = sampler_cfg.do_resample
+        resampling_step_interval = sampler_cfg.resampling_step_interval
+
+        # Initializations
+        x, logq_tensor, logweight_tensor = cls.initialize_particles(
+            moe_probability_path=moe_probability_path,
+            prior_sbdd=prior_sbdd,
+            batch_size=batch_size,
+            device=device,
+        )
+        x.requires_grad = True
+
+        # For trajectory storage
+        x_tensor_list = []
+        logweight_tensor_list = []
+        logq_tensor_list = []
+        choices = []
+
+        for step, t in enumerate(tqdm(timesteps, desc="MoE Sampling"), start=0):
+            if t.dim() == 0:
+                t = t * torch.ones(batch_size, 1).to(x.device)
+
+            # moe_score = probability_path.score(t, x)  # Algorithm  L3 (calculated internally in probability_path's methods)
+            moe_mu = moe_probability_path.drift_coeff(t, x)  # Algorithm  L4
+            moe_sigma = moe_probability_path.sigma(t)
+
+            # Algorithm L7: Propagate particles with Euler-Maruyama
+            dW = torch.randn_like(x) * np.sqrt(dt)
+            x_next = x + moe_mu * dt + moe_sigma * dW
+
+            # Algorithm L8: Update logq tensor if needed
+            # NOTE: This update is done for every (step % dlogq_calc_interval == 0) step where `use_logq` is True.
+            # NOTE: But the magnitude of update is scaled by `dlogq_calc_interval` to reflect the fact that we are effectively taking a bigger step in time for logq correction.
+            if use_logq and step % dlogq_calc_interval == 0:
+                dlogq_tensor_drift_term, dlogq_tensor_diffusion_term = moe_probability_path.get_dlogq(t, x)
+
+                logq_tensor_next = logq_tensor + dlogq_tensor_drift_term * (dt * dlogq_calc_interval)
+                # `dlogq_noise_scale` is a hyperparameter that scales the noise added to logq correction. The noise is added to account for the stochasticity in the diffusion term and can help stabilize inference.
+                logq_tensor_next = logq_tensor_next + torch.einsum(
+                    "bij,bij->bi",
+                    dlogq_tensor_diffusion_term,
+                    dW.unsqueeze(1) * np.sqrt(dlogq_calc_interval) * dlogq_noise_scale,
+                ).unsqueeze(2)
+            else:
+                logq_tensor_next = logq_tensor
+
+            # Algorithm L9: Update log weights
+            dlog_weight = moe_probability_path.get_dlog_weight(t, x, use_logq=use_logq, logq_tensor=logq_tensor)
+            logweight_tensor_next = logweight_tensor + dlog_weight * dt
+
+            # Algorithm 11-14: Resampling (if needed)
+            if do_resample and step % resampling_step_interval == 0:
+                choice = cls.sample_particles(logweight_tensor_next, batch_size)
+                x_next = x_next[choice]
+                logq_tensor_next = logq_tensor_next[choice]
+                # Algorithm L14: Reset log weights to zero after resampling
+                logweight_tensor_next = torch.zeros_like(logweight_tensor_next)
+            else:
+                choice = torch.arange(batch_size).numpy()
+
+            # Apply interleaving function if provided
+            if interleave_fn is not None:
+                x_next = interleave_fn(x_next, choice)
+
+            # Store trajectories
+            x_tensor_list.append(x_next.detach().cpu())
+            logweight_tensor_list.append(logweight_tensor_next.detach().cpu())
+            logq_tensor_list.append(logq_tensor_next.detach().cpu())
+            choices.append(choice)
+
+        x_trajectory = torch.stack(x_tensor_list)
+        x1 = x_trajectory[-1]
+        logweight_trajectory = torch.stack(logweight_tensor_list)
+        logq_trajectory = torch.stack(logq_tensor_list)
+        choices = np.array(choices)
+
+        return x1, x_trajectory, logweight_trajectory, logq_trajectory, choices
+
+    @staticmethod
+    def sample_particles(
+        logits: Float[torch.Tensor, " K"],
+        num_out_particles: int,  # (B,)
+        tol: float = 1e-6,
+        stratified: bool = True,
+    ) -> Int[np.ndarray, " B"]:
+        """
+        Draw one categorical sample per row of `logits` using stratified uniforms.
+        - Collapses tiny probs (<= tol) to 0 and renormalizes.
+        - Uses torch.searchsorted on the CDF to avoid np.digitize monotonicity errors.
+
+        Args:
+            logits: shape (K, 1)
+            num_out_particles: number of particles to sample (i.e. output batch size), shape (B,)
+            tol: probabilities <= tol are collapsed to zero
+            stratified: use stratified uniforms across [0,1)
+
+        Returns:
+            ids: LongTensor of shape (B,) with chosen category per row
+            None: placeholder to match your original signature
+        """
+        logits = logits.unsqueeze(0).expand(num_out_particles, -1)
+        B, K = logits.shape
+
+        # Stable softmax, then collapse tiny probs
+        probs = torch.softmax(logits, dim=-1)
+        probs = torch.where(probs <= tol, torch.zeros_like(probs), probs)
+
+        # Renormalize (rows that got fully zeroed become uniform)
+        row_sum = probs.sum(dim=-1, keepdim=True)
+        uniform = torch.full_like(probs, 1.0 / K)
+        probs = torch.where(row_sum > 0, probs / row_sum.clamp_min(torch.finfo(probs.dtype).eps), uniform)
+
+        # CDF (non-decreasing; duplicates OK)
+        cdf = torch.cumsum(probs, dim=-1).clamp(max=1.0)
+
+        # Stratified uniforms u in [0,1)
+        if stratified:
+            base = torch.rand((), device=logits.device, dtype=logits.dtype)
+            # center within each stratum (optional but nice)
+            u = (base + (torch.arange(B, device=logits.device, dtype=logits.dtype) + 0.5) / B) % 1.0
+        else:
+            u = torch.rand(B, device=logits.device, dtype=logits.dtype)
+
+        # Use torch.searchsorted to find the indices where u would be inserted to maintain order in cdf
+        ids = torch.searchsorted(cdf, u.unsqueeze(-1), right=True).squeeze(-1)
+        ids = ids.clamp_(0, K - 1)
+
+        return ids.cpu().numpy()

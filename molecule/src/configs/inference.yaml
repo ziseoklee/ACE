@@ -1,0 +1,13 @@
+defaults:
+  - benchmark: CrossDocked2020BenchConfig
+  - sampler: NRSampler
+  - weight: ConstantWeight
+  - _self_
+
+# With frozen structured configs, set sampler.omega and weight.omega via CLI overrides.
+sampler:
+  omega: ???
+  weight_config: ${weight}
+
+# If null, will use Hydra's default output directory. Otherwise, specify a custom output directory.s
+output_dir: null
