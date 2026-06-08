@@ -19,6 +19,7 @@ class _BaseSamplerConfig:
     resampling_step_interval: int = 10
     batch_size: int = 5
     device: str = "cuda:0"
+    seed: int = 42  # Random seed for reproducibility
 
 
 @dataclass(init=False)

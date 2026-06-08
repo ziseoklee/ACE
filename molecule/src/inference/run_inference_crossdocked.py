@@ -333,7 +333,7 @@ def run_inference_crossdocked(cfg: DictConfig, output_dir: Path) -> None:
     protein_dir = data_root / "crossdocked_pocket10"
     processed_data_dir = data_root / "processed"
     result_dir_base = output_dir / "1_results_inference"
-    seed = benchmark_cfg.seed
+    seed = sampler_cfg.seed
 
     # load pre-trained models and prepare probability paths
     device = sampler_cfg.device

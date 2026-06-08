@@ -71,12 +71,14 @@ class MoEPDESampler:
         prior_sbdd: torch.Tensor,
         batch_size: int,
         device: str,
+        seed: int,
     ):
         """
         Initialize x0, logq, and log weights tensor for the sampler.
         """
         sample_size: int = moe_probability_path.sample_size
-        x0: Float[torch.Tensor, "B D"] = torch.randn(batch_size, sample_size).to(device)
+        generator = torch.Generator(device=device).manual_seed(seed)
+        x0: Float[torch.Tensor, "B D"] = torch.randn(batch_size, sample_size, generator=generator).to(device)
         # !WARNING!: we assume the 3-rd expert is the DiffSBDD expert.
         mask_sbdd = moe_probability_path.q_list[2].mask_list[0]
         x0[..., mask_sbdd] = prior_sbdd
@@ -101,6 +103,7 @@ class MoEPDESampler:
     ):
         batch_size = sampler_cfg.batch_size
         device = sampler_cfg.device
+        seed = sampler_cfg.seed
         num_sampling_steps = sampler_cfg.num_sampling_steps
         dt = 1 / num_sampling_steps
         timesteps = torch.arange(0, 1, dt).to(device)
@@ -118,6 +121,7 @@ class MoEPDESampler:
             prior_sbdd=prior_sbdd,
             batch_size=batch_size,
             device=device,
+            seed=seed,
         )
         x.requires_grad = True
 
