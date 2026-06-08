@@ -4,8 +4,6 @@ import logging
 import os
 import random
 import shutil
-import subprocess
-import sys
 from pathlib import Path
 from typing import Callable, List, cast
 
@@ -42,6 +40,7 @@ from utils.utils_inference import (
     load_geodiff,
     replace_mol_topology_by_fragment,
 )
+from utils.utils_postprocess_valfix import postprocess_valfix
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -333,7 +332,7 @@ def run_inference_crossdocked(cfg: DictConfig, output_dir: Path) -> None:
     data_root = Path(benchmark_cfg.data_root)
     protein_dir = data_root / "crossdocked_pocket10"
     processed_data_dir = data_root / "processed"
-    result_dir_base = output_dir / "inference_results"
+    result_dir_base = output_dir / "1_results_inference"
     seed = benchmark_cfg.seed
 
     # load pre-trained models and prepare probability paths
@@ -421,20 +420,8 @@ def run_inference_crossdocked(cfg: DictConfig, output_dir: Path) -> None:
     ###############################################################################################
     ########## Postprocessing step over CrossDocked2020 generated samples                ##########
     ###############################################################################################
-    batch_size = sampler_cfg.batch_size
-    postprocess_command = [
-        sys.executable,
-        "src/utils/postprocess_valfix.py",
-        "--ligand_dir",
-        str(result_dir_base),
-        "--data_root",
-        str(data_root),
-        "--num_samples",
-        str(batch_size),
-    ]
-
-    logger.info(f"Running postprocessing: {' '.join(postprocess_command)}")
-    subprocess.run(postprocess_command, cwd=PROJECT_ROOT, check=True, text=True)
+    logger.info("Starting postprocessing of generated samples with postprocess_valfix...")
+    postprocess_valfix(data_root=data_root, output_ligand_dir=result_dir_base, num_samples=sampler_cfg.batch_size)
 
     logger.info("Finished inference and postprocessing for CrossDocked2020 benchmark.")
 
