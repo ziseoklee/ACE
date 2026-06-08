@@ -1,7 +1,6 @@
 import copy
 import functools
 import logging
-import os
 import random
 import shutil
 from pathlib import Path
@@ -15,10 +14,8 @@ from omegaconf import DictConfig, OmegaConf
 from rdkit import Chem
 from rdkit.Chem.rdchem import Mol
 from torch.distributions import Normal
-from tqdm import tqdm
 
 from configs import config as _config_registry  # Noqa: F401
-from configs.config_benchmark import CrossDocked2020BenchConfig
 from configs.config_sampler import _BaseSamplerConfig
 from configs.config_weight import ACEBumpWeightConfig, _BaseWeightConfig
 from pretrained_models.export_diffsbdd import interleave_fn as interleave_fn_diffsbdd
@@ -321,109 +318,86 @@ def run_single_task_sampling(
     return copy.deepcopy(original_samples), copy.deepcopy(replaced_samples)
 
 
-def run_inference_crossdocked(cfg: DictConfig, output_dir: Path) -> None:
-    benchmark_cfg = cast(CrossDocked2020BenchConfig, OmegaConf.to_object(cfg.benchmark))
+def run_inference(cfg: DictConfig, output_dir: Path) -> None:
     sampler_cfg = cast(_BaseSamplerConfig, OmegaConf.to_object(cfg.sampler))
     weight_cfg = cast(_BaseWeightConfig, OmegaConf.to_object(cfg.weight))
+
+    # Build and log exponent functions once before entering the inference loop.
     exponent_list = build_exponent_list(weight_cfg)
+    log_exponent_list(exponent_list)
 
-    # setup benchmark configs
-    num_trials = benchmark_cfg.num_trials
-    data_root = Path(benchmark_cfg.data_root)
-    protein_dir = data_root / "crossdocked_pocket10"
-    processed_data_dir = data_root / "processed"
-    result_dir_base = output_dir / "1_results_inference"
-    seed = sampler_cfg.seed
-
-    # load pre-trained models and prepare probability paths
+    # Load pre-trained models and prepare probability paths
     device = sampler_cfg.device
     sbdd = load_diffsbdd(device=device)
     args_edm, edm = load_edm(device=device)
     args_geodiff, geodiff = load_geodiff(device=device)
 
-    # Log exponent functions once before entering the inference loop.
-    log_exponent_list(exponent_list)
+    # Load data
+    protein_pocket_pdb_path = Path(cfg.data.protein_pocket_pdb_path)
+    fragment_sdf_path = Path(cfg.data.fragment_sdf_path)
+    ligand_sdf_path = Path(cfg.data.ligand_sdf_path)
 
-    ###############################################################################################
-    ########## Inference loop over tasks in CrossDocked2020 benchmark                    ##########
-    ###############################################################################################
-    task_path_list = sorted(processed_data_dir.glob("*.pt"), key=lambda x: int(x.stem))
-    for task_path in tqdm(task_path_list):
-        logger.info(f"Start task id {task_path.stem} | total {len(task_path_list)}")
-        # load data for the task
-        if not os.path.exists(task_path):
-            continue
-        data = torch.load(task_path, weights_only=False)
+    fragment: Mol = Chem.SDMolSupplier(str(fragment_sdf_path), sanitize=False)[0]
+    ligand: Mol = Chem.SDMolSupplier(str(ligand_sdf_path), sanitize=False)[0]
 
-        pdb_path = protein_dir / f"{data['protein_filename']}"
-        fragment: Mol = data["scaffold"]
-        ligand: Mol = data["mol"]
-
-        if num_ligand_atoms := ligand.GetNumAtoms() > 29:
-            logger.warning(
-                f"Task {task_path.stem} skipped due to ligand having {num_ligand_atoms} atoms, which exceeds the limit of 29."
-            )
-            continue
-
-        # run inference with sampler
-        save_dir = result_dir_base / f"{task_path.stem}"
-        if os.path.exists(save_dir):
-            shutil.rmtree(save_dir)
-        os.makedirs(save_dir, exist_ok=True)
-
-        logger.info(
-            f"Running inference for task {task_path.stem} with sampler {sampler_cfg.name} and weight {weight_cfg.name}"
+    if num_ligand_atoms := ligand.GetNumAtoms() > 29:
+        logger.warning(
+            f"29 atoms is the maximum supported number of atoms for the ligand in EDM training. However, the ligand in input data has {num_ligand_atoms} atoms, which exceeds the limit. Please note that results may be unreliable."
         )
-        original_samples_list = []
-        replaced_samples_list = []
-        for j in range(num_trials):  #!WARNING: we assert num_trials==1
-            logger.info(f"Trial {j}")
-            try:
-                seed_everything(seed + j)
-                original_samples, replaced_samples = run_single_task_sampling(
-                    pdb_path,
-                    fragment,
-                    ligand,
-                    sbdd,
-                    edm,
-                    geodiff,
-                    args_edm,
-                    args_geodiff,
-                    sampler_cfg=sampler_cfg,
-                    exponent_list=exponent_list,
-                    save_dir=save_dir,
-                )
-            except Exception as e:
-                logger.error(f"Trial {j} failed for task {task_path.stem}: {e}")
-                continue
-            original_samples_list.extend(original_samples)
-            replaced_samples_list.extend(replaced_samples)
-            logger.info(f"Valid samples: {len(replaced_samples)}")
 
-        output_samples = replaced_samples_list
-        outout_original_samples = original_samples_list
-        for j, sample in enumerate(output_samples):
-            try:
-                writer = Chem.SDWriter(str(save_dir / f"{j}.sdf"))
-                writer.write(sample)
-                writer.close()
-            except Exception:
-                continue
-        for j, sample in enumerate(outout_original_samples):
-            try:
-                writer = Chem.SDWriter(str(save_dir / f"original_{j}.sdf"))
-                writer.write(sample)
-                writer.close()
-            except Exception:
-                continue
+    # Create output directory for inference results
+    output_dir = output_dir / "inference_output"
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    ###############################################################################################
-    ########## Postprocessing step over CrossDocked2020 generated samples                ##########
-    ###############################################################################################
+    # Run inference with sampler
+    logger.info(
+        f"Running inference with sampler {sampler_cfg.name} and weight {weight_cfg.name} on device {device}. Output will be saved to {output_dir}"
+    )
+    seed_everything(sampler_cfg.seed)
+    original_samples, replaced_samples = run_single_task_sampling(
+        pdb_path=protein_pocket_pdb_path,
+        fragment=fragment,
+        ref_ligand=ligand,
+        sbdd=sbdd,
+        edm=edm,
+        geodiff=geodiff,
+        args_edm=args_edm,
+        args_geodiff=args_geodiff,
+        sampler_cfg=sampler_cfg,
+        exponent_list=exponent_list,
+        save_dir=output_dir,
+    )
+    logger.info(f"Generated {len(replaced_samples)} valid samples after replacement.")
+
+    # Save generated samples to output directory
+    for j, sample in enumerate(replaced_samples):
+        try:
+            writer = Chem.SDWriter(str(output_dir / f"{j}.sdf"))
+            writer.write(sample)
+            writer.close()
+        except Exception as e:
+            logger.error(f"Failed to save sample {j}: {e}")
+            continue
+    for j, sample in enumerate(original_samples):
+        try:
+            writer = Chem.SDWriter(str(output_dir / f"original_{j}.sdf"))
+            writer.write(sample)
+            writer.close()
+        except Exception as e:
+            logger.error(f"Failed to save original sample {j}: {e}")
+            continue
+
     logger.info("Starting postprocessing of generated samples with postprocess_valfix...")
-    postprocess_valfix(data_root=data_root, output_ligand_dir=result_dir_base, num_samples=sampler_cfg.batch_size)
-
-    logger.info("Finished inference and postprocessing for CrossDocked2020 benchmark.")
+    postprocess_valfix(
+        protein_pocket_pdb_path=protein_pocket_pdb_path,
+        fragment_sdf_path=fragment_sdf_path,
+        ref_ligand_sdf_path=ligand_sdf_path,
+        output_ligand_dir=output_dir,
+        num_samples=sampler_cfg.batch_size,
+    )
+    logger.info("Inference and postprocessing completed successfully.")
 
 
 @hydra.main(config_path="../configs", config_name="inference", version_base=None)
@@ -437,7 +411,7 @@ def main(cfg: DictConfig) -> None:
         output_dir = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
         logger.info("Output directory not specified in config. Using Hydra's default output directory.")
 
-    run_inference_crossdocked(cfg, output_dir=output_dir)
+    run_inference(cfg, output_dir=output_dir)
 
 
 if __name__ == "__main__":

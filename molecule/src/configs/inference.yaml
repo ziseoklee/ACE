@@ -1,13 +1,20 @@
 defaults:
-  - benchmark: CrossDocked2020BenchConfig
   - sampler: NRSampler
   - weight: ConstantWeight
   - _self_
 
-# With frozen structured configs, set sampler.omega and weight.omega via CLI overrides.
-sampler:
+data:
+  protein_pocket_pdb_path: examples/protein_pocket.pdb
+  fragment_sdf_path: examples/fragment.sdf
+  ligand_sdf_path: examples/ligand.sdf
+
+# With frozen structured configs, set weight.omega via CLI overrides.
+weight:
   omega: ???
+
+sampler:
+  omega: ${weight.omega}
   weight_config: ${weight}
 
-# If null, will use Hydra's default output directory. Otherwise, specify a custom output directory.s
+# If null, will use Hydra's default output directory. Otherwise, specify a custom output directory.
 output_dir: null
