@@ -78,7 +78,12 @@ class MoEPDESampler:
         """
         sample_size: int = moe_probability_path.sample_size
         generator = torch.Generator(device=device).manual_seed(seed)
-        x0: Float[torch.Tensor, "B D"] = torch.randn(batch_size, sample_size, generator=generator).to(device)
+        x0: Float[torch.Tensor, "B D"] = torch.randn(
+            batch_size,
+            sample_size,
+            generator=generator,
+            device=device,
+        ).to(device)
         # !WARNING!: we assume the 3-rd expert is the DiffSBDD expert.
         mask_sbdd = moe_probability_path.q_list[2].mask_list[0]
         x0[..., mask_sbdd] = prior_sbdd
