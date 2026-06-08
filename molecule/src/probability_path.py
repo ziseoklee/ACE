@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Callable, List, Optional, Union
+from typing import Callable, List, Optional
 
 import torch
 from jaxtyping import Float
@@ -9,8 +9,6 @@ from src.scheduler import SchedulerABC
 
 logger = logging.getLogger(__name__)
 
-### Probability Path ###
-# The following class implements the probability path attained from the Fokker-Planck equation scheduling given data distribution and prior (Gaussian) distribution.
 
 ScoreFunctionType = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
@@ -307,85 +305,6 @@ class MoEProbabilityPath(ProbabilityPathABC):
 
         return dlog_weight.squeeze(-1)  # (B,)
 
-    def f(
-        self,
-        t: torch.Tensor,
-        x: Float[torch.Tensor, "B D"],
-        logq_tensor: Float[torch.Tensor, "B E 1"],
-        do_use_logq_tensor: bool,
-        calc_dlogq_tensor: bool,
-    ):
-        """
-        - Shapes are seemingly... (Batch, Experts, Data_dim)
-        - Base drift and score are calculated with weighted mixture of
-          component-wise drifts and scores, where the weights are the time-varying exponents.
-        """
-
-        # Algo1. line 3: Mixture score
-        gamma: Float[torch.Tensor, "B E 1"] = torch.stack(  # time-varying exponents
-            [exponent_fn(t) for exponent_fn in self.exponent_list], dim=1
-        )
-        s: Float[torch.Tensor, "B E D"] = torch.stack(
-            [
-                pad_tensor(q.score(t, x[:, mask]), self.sample_size, dim=1).clamp(-20, 20)
-                for q, mask in zip(self.q_list, self.mask_list)
-            ],
-            dim=1,
-        )
-        s_star: Float[torch.Tensor, "B D"] = (gamma * s).sum(dim=1)
-
-        # Algo1. line 4: Drift
-        v: Float[torch.Tensor, "B E D"] = torch.stack(
-            [pad_tensor(q.v(t, x[:, mask]), self.sample_size, dim=1) for q, mask in zip(self.q_list, self.mask_list)],
-            dim=1,
-        )
-        sigma_expert = torch.stack([q.sigma(t) for q in self.q_list], dim=1)
-        v = v + 0.5 * sigma_expert**2 * s
-        v_star: Float[torch.Tensor, "B D"] = (gamma * v).sum(dim=1)
-        sigma = self.sigma(t)
-        mu: Float[torch.Tensor, "B D"] = v_star + sigma**2 / 2 * s_star
-
-        # Algo1. line 9: update log weight (except for logq correction)
-        dlog_weight: Float[torch.Tensor, "B 1"] = (
-            gamma * ((v_star.unsqueeze(1) - v) * s).sum(dim=2, keepdim=True)
-        ).sum(dim=1)
-
-        # Algo1. line 9: update log weight with previous logq correction
-        if do_use_logq_tensor:
-            d_gamma = torch.stack(  # time derivatives of exponents
-                [
-                    torch.func.jacfwd(exponent_fn, argnums=0)(t).squeeze().diag().unsqueeze(1)  # type: ignore
-                    for exponent_fn in self.exponent_list
-                ],
-                dim=1,
-            )
-            dlog_weight = dlog_weight + (d_gamma * logq_tensor).sum(dim=1)
-
-        # Algo1. line 8 logq correction terms
-        dlogq_tensor_drift_term: Union[Float[torch.Tensor, "B E 1"], None] = None
-        dlogq_tensor_diffusion_term: Union[Float[torch.Tensor, "B E D"], None] = None
-        if do_use_logq_tensor and calc_dlogq_tensor:
-            # line 8's logq correction term
-            x_subset_list = [x[:, mask] for mask in self.mask_list]
-            div_s = torch.stack(
-                [divergence_hutchinson(q.score, t, x_subset) for q, x_subset in zip(self.q_list, x_subset_list)],
-                dim=1,
-            )
-            div_v = torch.stack(
-                [divergence_hutchinson(q.v, t, x_subset) for q, x_subset in zip(self.q_list, x_subset_list)],
-                dim=1,
-            )
-            sigma = sigma.unsqueeze(1)  # (B, 1, 1)
-            div_v = div_v + sigma**2 / 2 * div_s
-
-            # dlogq_A: (B, num_experts, 1), dlogq_B: (B, num_experts, data_dim)
-            dlogq_tensor_drift_term = (
-                -div_v + ((mu.unsqueeze(1) - v) * s).sum(dim=2, keepdim=True) + 0.5 * sigma**2 * div_s
-            )
-            dlogq_tensor_diffusion_term = sigma * s  # dW related term
-
-        return mu, dlog_weight, dlogq_tensor_drift_term, dlogq_tensor_diffusion_term
-
 
 def pad_tensor(x: Float[torch.Tensor, "B D"], pad_size: int, dim: int):
     padding_shape = list(x.shape)
@@ -459,5 +378,4 @@ def divergence_hutchinson(
             contrib = one_pass(jitter * 10)
 
         div = div + contrib
-    # print(f'div: {div}')
     return div / n_probe
