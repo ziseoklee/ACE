@@ -15,5 +15,5 @@ bash scripts/setup_project.sh
 Override configurations as needed. For example, to use ACE sampler with omega=1.4 for both sampler and weight, run:
 
 ```bash
-python src/inference/run_inference_crossdocked.py sampler.omega=1.4 weight.omega=1.4 sampler=ACESampler
+python src/inference/run_inference.py weight.omega=1.4 sampler=ACESampler
 ```
