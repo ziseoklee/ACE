@@ -136,7 +136,7 @@ def build_exponent_list(weight_cfg: _BaseWeightConfig) -> List[Callable[[torch.T
             lambda t: torch.zeros_like(t) + omega,  # gamma_3
             lambda t: torch.zeros_like(t) - omega,  # gamma_1
             lambda t: torch.zeros_like(t) + weight_cfg.weight_function(t),  # gamma_4
-            lambda t: torch.zeros_like(t) - omega,  # gamma_2
+            lambda t: torch.zeros_like(t) - (omega - 1),  # gamma_2
         ]
 
     weight_fn = weight_cfg.weight_function

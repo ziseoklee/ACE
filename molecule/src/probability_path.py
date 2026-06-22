@@ -216,10 +216,11 @@ class MoEProbabilityPath(ProbabilityPathABC):
 
     def sigma(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         """Diffusion coefficient of MoE SDE, calculated as diffusion of global scheduler (not a mixture)."""
+        gamma = 2.0  # !FIXME: I have no idea why this is 2.0, but it seems to work well in practice.
         if not self.reverse:
-            return self.scheduler.sigma(t)
+            return gamma * self.scheduler.sigma(t)
         else:
-            return self.scheduler.sigma(1 - t)
+            return gamma * self.scheduler.sigma(1 - t)
 
     def get_dlogq(
         self,

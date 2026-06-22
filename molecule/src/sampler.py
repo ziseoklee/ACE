@@ -188,6 +188,11 @@ class MoEPDESampler:
             logq_tensor_list.append(logq_tensor_next.detach().cpu())
             choices.append(choice)
 
+            # Update for next iteration
+            x = x_next
+            logq_tensor = logq_tensor_next
+            logweight_tensor = logweight_tensor_next
+
         x_trajectory = torch.stack(x_tensor_list)
         x1 = x_trajectory[-1]
         logweight_trajectory = torch.stack(logweight_tensor_list)
