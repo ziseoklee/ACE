@@ -2,7 +2,7 @@ import contextlib
 import importlib
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -59,7 +59,6 @@ def _load_diffsbdd_helpers():
     return (
         molecule_builder.build_molecule,
         molecule_builder.process_molecule,
-        diff_utils.batch_to_list,
         diff_utils.get_pocket_from_ligand,
         diff_utils.num_nodes_to_batch_mask,
     )
@@ -68,7 +67,6 @@ def _load_diffsbdd_helpers():
 (
     build_molecule,
     process_molecule,
-    batch_to_list,
     get_pocket_from_ligand,
     num_nodes_to_batch_mask,
 ) = _load_diffsbdd_helpers()
@@ -348,7 +346,9 @@ def postprocess_fn(
     lig_mask = lig_mask.cpu()
 
     molecules = []
-    for mol_pc in zip(batch_to_list(x, lig_mask), batch_to_list(atom_type, lig_mask)):
+    x_by_sample = _batch_to_list_preserve_atom_order(x, lig_mask)
+    atom_type_by_sample = _batch_to_list_preserve_atom_order(atom_type, lig_mask)
+    for mol_pc in zip(x_by_sample, atom_type_by_sample):
         if frag_atom_type is not None:
             mol_pc[1][: len(frag_atom_type)] = frag_atom_type
         mol = build_molecule(*mol_pc, model.dataset_info, add_coords=True)
@@ -360,3 +360,11 @@ def postprocess_fn(
             molecules.append(mol)
 
     return molecules
+
+
+def _batch_to_list_preserve_atom_order(data: torch.Tensor, batch_mask: torch.Tensor) -> Tuple[torch.Tensor, ...]:
+    """Split a flattened ligand batch without reordering atoms inside each sample."""
+    if batch_mask.device != data.device:
+        batch_mask = batch_mask.to(data.device)
+    sample_ids = torch.unique(batch_mask, sorted=True)
+    return tuple(data[batch_mask == sample_id] for sample_id in sample_ids)
