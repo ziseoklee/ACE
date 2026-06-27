@@ -293,6 +293,7 @@ class MoEProbabilityPath(ProbabilityPathABC):
 
         # update log weight with logq correction if needed
         if use_logq:
+            assert logq_tensor is not None, "logq_tensor must be provided when use_logq is True"
             d_gamma = torch.stack(  # time derivatives of exponents
                 [
                     torch.func.jacfwd(exponent_fn, argnums=0)(t).squeeze().diag().unsqueeze(1)  # type: ignore

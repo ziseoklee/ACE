@@ -1,6 +1,6 @@
 import functools
 import logging
-from typing import Callable
+from typing import Callable, Tuple
 
 import numpy as np
 import torch
@@ -72,7 +72,7 @@ class MoEPDESampler:
         batch_size: int,
         device: str,
         seed: int,
-    ):
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Initialize x0, logq, and log weights tensor for the sampler.
         """
