@@ -12,9 +12,5 @@ data:
 weight:
   omega: ???
 
-sampler:
-  omega: ${weight.omega}
-  weight_config: ${weight}
-
 # If null, will use Hydra's default output directory. Otherwise, specify a custom output directory.
 output_dir: null
