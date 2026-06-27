@@ -4,9 +4,9 @@ defaults:
   - _self_
 
 data:
-  protein_pocket_pdb_path: examples/protein_pocket.pdb
-  fragment_sdf_path: examples/fragment.sdf
-  ligand_sdf_path: examples/ligand.sdf
+  protein_pocket_pdb_path: examples/4m7t_pocket.pdb
+  fragment_sdf_path: examples/4m7t_fragment.sdf
+  ligand_sdf_path: examples/4m7t_ligand.sdf
 
 # With frozen structured configs, set weight.omega via CLI overrides.
 weight:
