@@ -53,9 +53,9 @@ class ProbabilityPath(ProbabilityPathABC):
     ) -> Float[torch.Tensor, "B D"]:
         """Drift coefficient of SDE"""
         if not self.reverse:
-            return self.scheduler.f(t, x)
+            return self.scheduler.drift_coeff(t, x)
         else:
-            f = self.scheduler.f(1 - t, x)
+            f = self.scheduler.drift_coeff(1 - t, x)
             return -f + self.sigma(t) ** 2 * self.score(t, x)
 
     def v(
@@ -65,10 +65,10 @@ class ProbabilityPath(ProbabilityPathABC):
     ) -> Float[torch.Tensor, "B D"]:
         """Velocity of PF-ODE"""
         if not self.reverse:
-            f = self.scheduler.f(t, x)
-            return f - 0.5 * self.scheduler.sigma(t) ** 2 * self.score(t, x)
+            f = self.scheduler.drift_coeff(t, x)
+            return f - 0.5 * self.scheduler.diffusion_coeff(t) ** 2 * self.score(t, x)
         else:
-            f = self.scheduler.f(1 - t, x)
+            f = self.scheduler.drift_coeff(1 - t, x)
             return -f + 0.5 * self.sigma(t) ** 2 * self.score(t, x)
 
     def score(
@@ -85,9 +85,9 @@ class ProbabilityPath(ProbabilityPathABC):
     def sigma(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         """Diffusion coefficient of SDE"""
         if not self.reverse:
-            return self.scheduler.sigma(t)
+            return self.scheduler.diffusion_coeff(t)
         else:
-            return self.scheduler.sigma(1 - t)
+            return self.scheduler.diffusion_coeff(1 - t)
 
 
 class PaddedProbabilityPath(ProbabilityPathABC):
@@ -218,9 +218,9 @@ class MoEProbabilityPath(ProbabilityPathABC):
         """Diffusion coefficient of MoE SDE, calculated as diffusion of global scheduler (not a mixture)."""
         gamma = 2.0  # !FIXME: I have no idea why this is 2.0, but it seems to work well in practice.
         if not self.reverse:
-            return gamma * self.scheduler.sigma(t)
+            return gamma * self.scheduler.diffusion_coeff(t)
         else:
-            return gamma * self.scheduler.sigma(1 - t)
+            return gamma * self.scheduler.diffusion_coeff(1 - t)
 
     def get_dlogq(
         self,
