@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 ScoreFunctionType = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+SCORE_CLAMP_MAGNITUDE = 20.0  # ! IMPORTANT: clamp score function to avoid numerical instability near t=0 or t=1
 
 
 class ProbabilityPathABC(ABC):
@@ -56,7 +57,7 @@ class ProbabilityPath(ProbabilityPathABC):
             return self.scheduler.drift_coeff(t, x)
         else:
             f = self.scheduler.drift_coeff(1 - t, x)
-            return -f + self.sigma(t) ** 2 * self.score(t, x)
+            return -f + self.sigma(t) ** 2 * self.score(t, x).clamp(-SCORE_CLAMP_MAGNITUDE, SCORE_CLAMP_MAGNITUDE)
 
     def v(
         self,
@@ -66,10 +67,12 @@ class ProbabilityPath(ProbabilityPathABC):
         """Velocity of PF-ODE"""
         if not self.reverse:
             f = self.scheduler.drift_coeff(t, x)
-            return f - 0.5 * self.scheduler.diffusion_coeff(t) ** 2 * self.score(t, x)
+            return f - 0.5 * self.scheduler.diffusion_coeff(t) ** 2 * self.score(t, x).clamp(
+                -SCORE_CLAMP_MAGNITUDE, SCORE_CLAMP_MAGNITUDE
+            )
         else:
             f = self.scheduler.drift_coeff(1 - t, x)
-            return -f + 0.5 * self.sigma(t) ** 2 * self.score(t, x)
+            return -f + 0.5 * self.sigma(t) ** 2 * self.score(t, x).clamp(-SCORE_CLAMP_MAGNITUDE, SCORE_CLAMP_MAGNITUDE)
 
     def score(
         self,
@@ -206,7 +209,9 @@ class MoEProbabilityPath(ProbabilityPathABC):
         )
         s: Float[torch.Tensor, "B E D"] = torch.stack(
             [
-                pad_tensor(q.score(t, x[:, mask]), self.sample_size, dim=1).clamp(-20, 20)
+                pad_tensor(q.score(t, x[:, mask]), self.sample_size, dim=1).clamp(
+                    -SCORE_CLAMP_MAGNITUDE, SCORE_CLAMP_MAGNITUDE
+                )
                 for q, mask in zip(self.q_list, self.mask_list)
             ],
             dim=1,
