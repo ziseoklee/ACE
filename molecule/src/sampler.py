@@ -1,5 +1,6 @@
 import functools
 import logging
+from math import ceil
 from typing import Callable, Tuple
 
 import numpy as np
@@ -106,6 +107,14 @@ class MoEPDESampler:
         interleave_fn: Callable[[torch.Tensor, np.ndarray], torch.Tensor],  # (x, choice) -> x
         prior_sbdd: torch.Tensor,
     ):
+        """Sample MoE paths with SDE updates before ``ode_start_t`` and ODE updates after it.
+
+        During the final ODE phase, particles are propagated deterministically with
+        the PF-ODE velocity. The logq tensor, log weights, and resampling choices
+        are intentionally frozen in this phase; this is an approximation used to
+        avoid endpoint logq/reweighting instabilities while still applying the
+        interleave function to keep conditioning state aligned.
+        """
         batch_size = sampler_cfg.batch_size
         device = sampler_cfg.device
         seed = sampler_cfg.seed
@@ -136,47 +145,69 @@ class MoEPDESampler:
         logq_tensor_list = []
         choices = []
 
+        log_ode_switched = False  # Flag to indicate if ODE solver has been switched
+        ode_start_step = ceil(sampler_cfg.ode_start_t * num_sampling_steps)  # Step at which to switch to ODE solver
         for step, t in enumerate(tqdm(timesteps, desc="MoE Sampling"), start=0):
             if t.dim() == 0:
                 t = t * torch.ones(batch_size, 1).to(x.device)
 
-            # moe_score = probability_path.score(t, x)  # Algorithm  L3 (calculated internally in probability_path's methods)
-            moe_mu = moe_probability_path.drift_coeff(t, x)  # Algorithm  L4
-            moe_sigma = moe_probability_path.sigma(t)
+            if step >= ode_start_step:
+                if not log_ode_switched:
+                    logger.info(
+                        f"From step {step} (t={t[0].item():.4f}), switching to ODE solver for deterministic propagation."
+                        "It is recommended for numerical stability near t=1."
+                    )
+                    logger.info(
+                        "Note: This will freeze the logq tensor, log weights, and disable resampling for the remaining steps."
+                    )
+                    log_ode_switched = True
 
-            # Algorithm L7: Propagate particles with Euler-Maruyama
-            dW = torch.randn_like(x) * np.sqrt(dt)
-            x_next = x + moe_mu * dt + moe_sigma * dW
-
-            # Algorithm L8: Update logq tensor if needed
-            # NOTE: This update is done for every (step % dlogq_calc_interval == 0) step where `use_logq` is True.
-            # NOTE: But the magnitude of update is scaled by `dlogq_calc_interval` to reflect the fact that we are effectively taking a bigger step in time for logq correction.
-            if use_logq and step % dlogq_calc_interval == 0:
-                dlogq_tensor_drift_term, dlogq_tensor_diffusion_term = moe_probability_path.get_dlogq(t, x)
-
-                logq_tensor_next = logq_tensor + dlogq_tensor_drift_term * (dt * dlogq_calc_interval)
-                # `dlogq_noise_scale` is a hyperparameter that scales the noise added to logq correction. The noise is added to account for the stochasticity in the diffusion term and can help stabilize inference.
-                logq_tensor_next = logq_tensor_next + torch.einsum(
-                    "bij,bij->bi",
-                    dlogq_tensor_diffusion_term,
-                    dW.unsqueeze(1) * np.sqrt(dlogq_calc_interval) * dlogq_noise_scale,
-                ).unsqueeze(2)
-            else:
+                # ==== ODE Sampling Step =====
+                moe_v = moe_probability_path.v(t, x)
+                x_next = x + moe_v * dt
                 logq_tensor_next = logq_tensor
-
-            # Algorithm L9: Update log weights
-            dlog_weight = moe_probability_path.get_dlog_weight(t, x, use_logq=use_logq, logq_tensor=logq_tensor)
-            logweight_tensor_next = logweight_tensor + dlog_weight * dt
-
-            # Algorithm 11-14: Resampling (if needed)
-            if do_resample and step % resampling_step_interval == 0:
-                choice = cls.sample_particles(logweight_tensor_next, batch_size)
-                x_next = x_next[choice]
-                logq_tensor_next = logq_tensor_next[choice]
-                # Algorithm L14: Reset log weights to zero after resampling
-                logweight_tensor_next = torch.zeros_like(logweight_tensor_next)
-            else:
+                logweight_tensor_next = logweight_tensor
                 choice = torch.arange(batch_size).numpy()
+
+            else:
+                # ===== SDE Sampling Step =====
+                # moe_score = probability_path.score(t, x)  # Algorithm  L3 (calculated internally in probability_path's methods)
+                moe_mu = moe_probability_path.drift_coeff(t, x)  # Algorithm  L4
+                moe_sigma = moe_probability_path.sigma(t)
+
+                # Algorithm L7: Propagate particles with Euler-Maruyama
+                dW = torch.randn_like(x) * np.sqrt(dt)
+                x_next = x + moe_mu * dt + moe_sigma * dW
+
+                # Algorithm L8: Update logq tensor if needed
+                # NOTE: This update is done for every (step % dlogq_calc_interval == 0) step where `use_logq` is True.
+                # NOTE: But the magnitude of update is scaled by `dlogq_calc_interval` to reflect the fact that we are effectively taking a bigger step in time for logq correction.
+                if use_logq and step % dlogq_calc_interval == 0:
+                    dlogq_tensor_drift_term, dlogq_tensor_diffusion_term = moe_probability_path.get_dlogq(t, x)
+
+                    logq_tensor_next = logq_tensor + dlogq_tensor_drift_term * (dt * dlogq_calc_interval)
+                    # `dlogq_noise_scale` is a hyperparameter that scales the noise added to logq correction. The noise is added to account for the stochasticity in the diffusion term and can help stabilize inference.
+                    logq_tensor_next = logq_tensor_next + torch.einsum(
+                        "bij,bij->bi",
+                        dlogq_tensor_diffusion_term,
+                        dW.unsqueeze(1) * np.sqrt(dlogq_calc_interval) * dlogq_noise_scale,
+                    ).unsqueeze(2)
+                else:
+                    logq_tensor_next = logq_tensor
+
+                # Algorithm L9: Update log weights
+                dlog_weight = moe_probability_path.get_dlog_weight(t, x, use_logq=use_logq, logq_tensor=logq_tensor)
+                logweight_tensor_next = logweight_tensor + dlog_weight * dt
+
+                # Algorithm 11-14: Resampling (if needed)
+                if do_resample and step % resampling_step_interval == 0:
+                    choice = cls.resample_particles(logweight_tensor_next, batch_size)
+                    x_next = x_next[choice]
+                    logq_tensor_next = logq_tensor_next[choice]
+                    # Algorithm L14: Reset log weights to zero after resampling
+                    logweight_tensor_next = torch.zeros_like(logweight_tensor_next)
+                else:
+                    choice = torch.arange(batch_size).numpy()
 
             # Apply interleaving function if provided
             if interleave_fn is not None:
@@ -202,7 +233,7 @@ class MoEPDESampler:
         return x1, x_trajectory, logweight_trajectory, logq_trajectory, choices
 
     @staticmethod
-    def sample_particles(
+    def resample_particles(
         logits: Float[torch.Tensor, " K"],
         num_out_particles: int,  # (B,)
         tol: float = 1e-6,

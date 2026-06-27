@@ -20,6 +20,7 @@ class _BaseSamplerConfig:
     batch_size: int = 5
     device: str = "cuda:0"
     seed: int = 42  # Random seed for reproducibility
+    ode_start_t: float = 0.98  # At `ode_start_t` < t <= 1.0, we use ODE solver instead of SDE solver for sampling. This is to avoid numerical instability near t=1.0.
 
 
 @dataclass(init=False)
@@ -42,6 +43,7 @@ class NRSamplerConfig(_BaseSamplerConfig):
         batch_size: int = _BaseSamplerConfig.batch_size,
         device: str = _BaseSamplerConfig.device,
         seed: int = _BaseSamplerConfig.seed,
+        ode_start_t: float = _BaseSamplerConfig.ode_start_t,
     ):
         if weight_config is None:
             weight_config = ConstantWeightConfig(omega=omega)
@@ -59,6 +61,7 @@ class NRSamplerConfig(_BaseSamplerConfig):
             batch_size=batch_size,
             device=device,
             seed=seed,
+            ode_start_t=ode_start_t,
         )
 
 
@@ -82,6 +85,7 @@ class FKCSamplerConfig(_BaseSamplerConfig):
         batch_size: int = _BaseSamplerConfig.batch_size,
         device: str = _BaseSamplerConfig.device,
         seed: int = _BaseSamplerConfig.seed,
+        ode_start_t: float = _BaseSamplerConfig.ode_start_t,
     ):
         if weight_config is None:
             weight_config = ConstantWeightConfig(omega=omega)
@@ -99,6 +103,7 @@ class FKCSamplerConfig(_BaseSamplerConfig):
             batch_size=batch_size,
             device=device,
             seed=seed,
+            ode_start_t=ode_start_t,
         )
 
 
@@ -122,6 +127,7 @@ class ACESamplerConfig(_BaseSamplerConfig):
         batch_size: int = _BaseSamplerConfig.batch_size,
         device: str = _BaseSamplerConfig.device,
         seed: int = _BaseSamplerConfig.seed,
+        ode_start_t: float = _BaseSamplerConfig.ode_start_t,
         **weight_config_kwargs,
     ):
         if weight_config is None:
@@ -140,6 +146,7 @@ class ACESamplerConfig(_BaseSamplerConfig):
             batch_size=batch_size,
             device=device,
             seed=seed,
+            ode_start_t=ode_start_t,
         )
 
 
@@ -163,6 +170,7 @@ class ACEliteSamplerConfig(_BaseSamplerConfig):
         batch_size: int = _BaseSamplerConfig.batch_size,
         device: str = _BaseSamplerConfig.device,
         seed: int = _BaseSamplerConfig.seed,
+        ode_start_t: float = _BaseSamplerConfig.ode_start_t,
         **weight_config_kwargs,
     ):
         if weight_config is None:
@@ -181,4 +189,5 @@ class ACEliteSamplerConfig(_BaseSamplerConfig):
             batch_size=batch_size,
             device=device,
             seed=seed,
+            ode_start_t=ode_start_t
         )
