@@ -41,6 +41,7 @@ class NRSamplerConfig(_BaseSamplerConfig):
         resampling_step_interval: int = _BaseSamplerConfig.resampling_step_interval,
         batch_size: int = _BaseSamplerConfig.batch_size,
         device: str = _BaseSamplerConfig.device,
+        seed: int = _BaseSamplerConfig.seed,
     ):
         if weight_config is None:
             weight_config = ConstantWeightConfig(omega=omega)
@@ -57,6 +58,7 @@ class NRSamplerConfig(_BaseSamplerConfig):
             resampling_step_interval=resampling_step_interval,
             batch_size=batch_size,
             device=device,
+            seed=seed,
         )
 
 
@@ -79,6 +81,7 @@ class FKCSamplerConfig(_BaseSamplerConfig):
         resampling_step_interval: int = _BaseSamplerConfig.resampling_step_interval,
         batch_size: int = _BaseSamplerConfig.batch_size,
         device: str = _BaseSamplerConfig.device,
+        seed: int = _BaseSamplerConfig.seed,
     ):
         if weight_config is None:
             weight_config = ConstantWeightConfig(omega=omega)
@@ -95,6 +98,7 @@ class FKCSamplerConfig(_BaseSamplerConfig):
             resampling_step_interval=resampling_step_interval,
             batch_size=batch_size,
             device=device,
+            seed=seed,
         )
 
 
@@ -117,6 +121,7 @@ class ACESamplerConfig(_BaseSamplerConfig):
         resampling_step_interval: int = _BaseSamplerConfig.resampling_step_interval,
         batch_size: int = _BaseSamplerConfig.batch_size,
         device: str = _BaseSamplerConfig.device,
+        seed: int = _BaseSamplerConfig.seed,
         **weight_config_kwargs,
     ):
         if weight_config is None:
@@ -134,6 +139,7 @@ class ACESamplerConfig(_BaseSamplerConfig):
             resampling_step_interval=resampling_step_interval,
             batch_size=batch_size,
             device=device,
+            seed=seed,
         )
 
 
@@ -156,6 +162,7 @@ class ACEliteSamplerConfig(_BaseSamplerConfig):
         resampling_step_interval: int = _BaseSamplerConfig.resampling_step_interval,
         batch_size: int = _BaseSamplerConfig.batch_size,
         device: str = _BaseSamplerConfig.device,
+        seed: int = _BaseSamplerConfig.seed,
         **weight_config_kwargs,
     ):
         if weight_config is None:
@@ -173,4 +180,5 @@ class ACEliteSamplerConfig(_BaseSamplerConfig):
             resampling_step_interval=resampling_step_interval,
             batch_size=batch_size,
             device=device,
+            seed=seed,
         )
