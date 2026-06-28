@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 import torch
@@ -22,6 +23,19 @@ PathLike = Path | str
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class DiffSBDDInferenceContext:
+    model: LigandPocketDDPM
+    num_samples: int
+    lig_mask: torch.Tensor
+    pocket: dict[str, torch.Tensor]
+    pocket_com_before: torch.Tensor
+    device: str
+    z: Float[torch.Tensor, "B D"]
+    xh_pocket: torch.Tensor
+    data_shape: tuple[int, ...]
+
+
 class DiffSBDDExpert(MoEExpertABC):
     """
     Expert class for DiffSBDD (DiffSBDD: Structure-based Drug Design with Equivariant Diffusion Models, Nature Computational Science 2024).
@@ -32,6 +46,7 @@ class DiffSBDDExpert(MoEExpertABC):
     device: str
     model: LigandPocketDDPM
     model_config: None
+    _inference_context: DiffSBDDInferenceContext
 
     def __init__(self, device: str, model: LigandPocketDDPM, model_config: None = None):
         super().__init__()
@@ -92,6 +107,8 @@ class DiffSBDDExpert(MoEExpertABC):
             "xh_pocket": xh_pocket,
             "data_shape": data_shape,
         }
+        # Store the prepared data for inference
+        self._inference_context = DiffSBDDInferenceContext(**prepared_data)  # type: ignore
         return prepared_data
 
     def score(
@@ -100,7 +117,37 @@ class DiffSBDDExpert(MoEExpertABC):
         x: Float[torch.Tensor, "B D"],
     ) -> Float[torch.Tensor, " B"]:
         # Implementation for scoring using the DiffSBDD expert
-        ...
+        model = self.model
+        lig_mask = self._inference_context.lig_mask
+        pocket = self._inference_context.pocket
+        xh_pocket = self._inference_context.xh_pocket
+        data_shape = self._inference_context.data_shape
+        batch_size = x.shape[0]
+        curr_shape = x.shape
+
+        x = x.reshape(data_shape)
+        T = model.T
+
+        i = (T * t).int().clamp(1, T - 1)[0].item()
+
+        s_array = torch.full((batch_size, 1), fill_value=i - 1, device=self.device)
+        t_array = s_array + 1
+        s_array = s_array / T
+        t_prev_array = (t_array - 1) / T
+        t_array = t_array / T
+
+        gamma_s = model.ddpm.gamma(s_array)
+        gamma_t = model.ddpm.gamma(t_array)
+        gamma_t_prev = model.ddpm.gamma(t_prev_array)
+        sigma_t = model.ddpm.sigma(gamma_t, target_tensor=x)
+        alpha_t = model.ddpm.alpha(gamma_t, target_tensor=x)
+        alpha_t_prev = model.ddpm.alpha(gamma_t_prev, target_tensor=x)
+        beta_t = (-2 * torch.log(alpha_t / alpha_t_prev)) * T
+
+        eps_t_lig, _ = model.ddpm.dynamics(x, xh_pocket, t_array, lig_mask, pocket["mask"])
+        score = -eps_t_lig / sigma_t[lig_mask]
+
+        return score.reshape(curr_shape)
 
     def interleave(self, *args, **kwargs):
         # Implementation for interleaving data specific to DiffSBDD

@@ -1,11 +1,12 @@
 import argparse
 import logging
 import pickle
+from dataclasses import dataclass
 
 import torch
 from e3_diffusion_for_molecules.configs.datasets_config import get_dataset_info
 from e3_diffusion_for_molecules.equivariant_diffusion.en_diffusion import EnVariationalDiffusion
-from e3_diffusion_for_molecules.equivariant_diffusion.utils import assert_mean_zero_with_mask
+from e3_diffusion_for_molecules.equivariant_diffusion.utils import assert_mean_zero_with_mask, remove_mean_with_mask
 from e3_diffusion_for_molecules.qm9.models import get_model
 from jaxtyping import Float
 
@@ -21,6 +22,19 @@ EDM_MODEL_CONFIG_PATH = EDM_SOURCE_DIR / "outputs" / "edm_qm9" / "args.pickle"
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class EDMInferenceContext:
+    model: EnVariationalDiffusion
+    batch_size: int
+    node_mask: Float[torch.Tensor, "B N"]
+    edge_mask: Float[torch.Tensor, "B N N"]
+    context: None
+    max_n_nodes: int
+    device: str
+    z: Float[torch.Tensor, "B D"]
+    data_shape: tuple[int, ...]
+
+
 class EDMExpert(MoEExpertABC):
     """
     Expert class for EDM (Equivariant Diffusion for Molecule Generation in 3D, ICML2022).
@@ -28,11 +42,12 @@ class EDMExpert(MoEExpertABC):
     Reference code: https://github.com/ehoogeboom/e3_diffusion_for_molecules
     """
 
+    _EDM_MAX_NODES = 29  # Maximum number of nodes in the QM9 dataset
+
     device: str
     model: EnVariationalDiffusion
     model_config: argparse.Namespace
-
-    _EDM_MAX_NODES = 29  # Maximum number of nodes in the QM9 dataset
+    _inference_context: EDMInferenceContext
 
     def __init__(self, device: str, model: EnVariationalDiffusion, model_config: argparse.Namespace):
         super().__init__()
@@ -98,6 +113,8 @@ class EDMExpert(MoEExpertABC):
             "z": z,
             "data_shape": data_shape,
         }
+        # Store the prepared data for inference
+        self._inference_context = EDMInferenceContext(**prepared_data)  # type: ignore
         return prepared_data
 
     def score(
@@ -106,7 +123,47 @@ class EDMExpert(MoEExpertABC):
         x: Float[torch.Tensor, "B D"],
     ) -> Float[torch.Tensor, " B"]:
         # Implementation for scoring using the EDM expert
-        ...
+        model = self.model
+        node_mask = self._inference_context.node_mask
+        edge_mask = self._inference_context.edge_mask
+        context = self._inference_context.context
+        data_shape = self._inference_context.data_shape
+        curr_shape = x.shape
+        batch_size = x.shape[0]
+
+        x = x.reshape(data_shape)
+        x[:, :, : model.n_dims] = remove_mean_with_mask(x[:, :, : model.n_dims], node_mask)
+
+        i = (model.T * t).int().clamp(1, model.T - 1)[0].item()
+
+        t = torch.full(size=(1,), fill_value=i, dtype=torch.long, device=self.device)
+
+        s_array = torch.full((batch_size, 1), fill_value=i - 1, device=self.device)
+        t_array = torch.full((batch_size, 1), fill_value=i, device=self.device)
+        s_array = s_array / model.T
+        t_prev_array = (t_array - 1) / model.T
+        t_array = t_array / model.T
+
+        gamma_s = model.gamma(s_array)
+        gamma_t = model.gamma(t_array)
+        gamma_t_prev = model.gamma(t_prev_array)
+        sigma_t = model.sigma(gamma_t, target_tensor=x)
+        alpha_t = model.alpha(gamma_t, x)
+        alpha_t_prev = model.alpha(gamma_t_prev, x)
+        beta_t = -2 * (torch.log(alpha_t / alpha_t_prev) * model.T)
+
+        # Neural net prediction.
+        eps_t = model.phi(x, t_array, node_mask, edge_mask, context)
+        score = -eps_t / sigma_t
+        score = torch.cat(
+            [
+                score[:, :, : model.n_dims] - score[:, :, : model.n_dims].mean(dim=1).unsqueeze(1),
+                score[:, :, model.n_dims :],
+            ],
+            dim=2,
+        )
+
+        return score.reshape(curr_shape)
 
     def interleave(self, *args, **kwargs):
         # Implementation for interleaving data specific to EDM

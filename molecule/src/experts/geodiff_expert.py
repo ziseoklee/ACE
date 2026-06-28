@@ -1,12 +1,14 @@
 import copy
 import logging
 from collections import defaultdict
+from dataclasses import dataclass
 
 import torch
 import yaml
 from easydict import EasyDict
 from geodiff.models.epsnet import get_model
-from geodiff.models.epsnet.dualenc import DualEncoderEpsNetwork
+from geodiff.models.epsnet.dualenc import DualEncoderEpsNetwork, clip_norm
+from geodiff.models.geometry import eq_transform
 from geodiff.utils.datasets import rdmol_to_data
 from geodiff.utils.misc import repeat_data
 from geodiff.utils.transforms import AddHigherOrderEdges, CountNodesPerGraph
@@ -25,6 +27,19 @@ GEODIFF_CONFIG_PATH = GEODIFF_SOURCE_DIR / "log" / "model" / "qm9_default.yml"
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class GeoDiffInferenceContext:
+    model: DualEncoderEpsNetwork
+    batch: Data
+    global_start_sigma: float
+    w_global: float
+    clip_local: float | None
+    clip: float
+    z: Float[torch.Tensor, "B D"]
+    num_samples: int
+    data_shape: tuple[int, ...]
 
 
 def disable_inplace_relu(module):
@@ -52,6 +67,7 @@ class GeoDiffExpert(MoEExpertABC):
     device: str
     model: DualEncoderEpsNetwork
     model_config: EasyDict
+    _inference_context: GeoDiffInferenceContext
 
     def __init__(self, device: str, model: DualEncoderEpsNetwork, model_config: EasyDict):
         super().__init__()
@@ -111,6 +127,8 @@ class GeoDiffExpert(MoEExpertABC):
             "num_samples": batch_size,
             "data_shape": data_shape,
         }
+        # Store the prepared data for inference
+        self._inference_context = GeoDiffInferenceContext(**prepared_data)  # type: ignore
         return prepared_data
 
     def score(
@@ -119,7 +137,70 @@ class GeoDiffExpert(MoEExpertABC):
         x: Float[torch.Tensor, "B D"],
     ) -> Float[torch.Tensor, " B"]:
         # Implementation for scoring using the GeoDiff expert
-        ...
+        model = self.model
+        batch = self._inference_context.batch
+        global_start_sigma = self._inference_context.global_start_sigma
+        w_global = self._inference_context.w_global
+        clip_local = self._inference_context.clip_local
+        clip = self._inference_context.clip
+        data_shape = self._inference_context.data_shape
+        curr_shape = x.shape
+        batch_size = x.shape[0]
+
+        x = x.reshape(data_shape)
+        alphas = model.alphas
+        betas = model.betas * 10000
+        sigmas = (1.0 - alphas).sqrt() / alphas.sqrt()
+
+        num_timesteps = model.num_timesteps
+        i = (num_timesteps * t).int().clamp(0, num_timesteps - 1)[0].item()
+
+        t = torch.full(size=(1,), fill_value=i, dtype=torch.long, device=x.device)
+
+        (
+            edge_inv_global,
+            edge_inv_local,
+            edge_index,
+            edge_type,
+            edge_length,
+            local_edge_mask,
+        ) = model(
+            atom_type=batch.atom_type,
+            pos=x / alphas[i].sqrt(),
+            bond_index=batch.edge_index,
+            bond_type=batch.edge_type,
+            batch=batch.batch,
+            time_step=t,
+            return_edges=True,
+            extend_order=False,
+            extend_radius=True,
+            is_sidechain=None,
+        )  # (E_global, 1), (E_local, 1)
+
+        # Local
+        node_eq_local = eq_transform(
+            edge_inv_local,
+            x / alphas[i].sqrt(),
+            edge_index[:, local_edge_mask],
+            edge_length[local_edge_mask],
+        )
+        if clip_local is not None:
+            node_eq_local = clip_norm(node_eq_local, limit=clip_local)
+        # Global
+        if sigmas[i] < global_start_sigma:
+            edge_inv_global = edge_inv_global * (1 - local_edge_mask.view(-1, 1).float())
+            node_eq_global = eq_transform(edge_inv_global, x / alphas[i].sqrt(), edge_index, edge_length)
+            node_eq_global = clip_norm(node_eq_global, limit=clip)
+        else:
+            node_eq_global = 0
+        # Sum
+        eps_pos = node_eq_local + node_eq_global * w_global  # + eps_pos_reg * w_reg
+
+        score = eps_pos / (1 - torch.ones_like(eps_pos) * alphas[i]).sqrt()
+        score = score.reshape(batch_size, -1, 3)
+        score = score - score.mean(dim=1).unsqueeze(1)
+        # print(f'centeralized score_geo')
+        return score.reshape(curr_shape)
 
     def interleave(self, *args, **kwargs):
         # Implementation for interleaving data specific to GeoDiff
