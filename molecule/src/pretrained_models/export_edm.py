@@ -11,7 +11,7 @@ import torch.nn as nn
 from rdkit.Chem import Mol
 
 if TYPE_CHECKING:
-    from pretrained_models.e3_diffusion_for_molecules.equivariant_diffusion.en_diffusion import EnVariationalDiffusion
+    from e3_diffusion_for_molecules.equivariant_diffusion.en_diffusion import EnVariationalDiffusion
 
 
 _E3_ROOT = Path(__file__).resolve().parent / "e3_diffusion_for_molecules"

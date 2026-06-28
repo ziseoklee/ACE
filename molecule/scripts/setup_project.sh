@@ -14,15 +14,21 @@ cd "$PROJECT_ROOT"
 printf "0. Checking if uv is installed...\n"
 
 if ! command -v uv &> /dev/null; then
-    printf "uv could not be found. Installing uv...\n"
+    printf "  uv could not be found. Installing uv...\n"
     curl -LsSf https://astral.sh/uv/install.sh | sh
     export PATH="$HOME/.local/bin:$PATH"
 else
-    printf "\e[32m\u2714\e[0m uv is already installed.\n"
+    printf "  \e[32m\u2714\e[0m uv is already installed.\n"
 fi
 
 if ! command -v uv &> /dev/null; then
-    printf "\e[31m\u2718\e[0m Error: uv installation failed. Please install uv manually and rerun this script.\n"
+    printf "  \e[31m\u2718\e[0m Error: uv installation failed. Please install uv manually and rerun this script.\n"
+    exit 1
+fi
+
+PYTHON_BIN="$(command -v python3 || command -v python || true)"
+if [ -z "$PYTHON_BIN" ]; then
+    printf "  \e[31m\u2718\e[0m Error: python could not be found. Please install Python and rerun this script.\n"
     exit 1
 fi
 ###################################################################################################
@@ -34,93 +40,11 @@ printf "1. Updating git submodules...\n"
 
 git submodule update --init --recursive
 
-printf "  Ensuring DiffSBDD .gitignore ignores Python cache directories...\n"
-DIFFSBDD_GITIGNORE="$PROJECT_ROOT/src/pretrained_models/DiffSBDD/.gitignore"
-touch "$DIFFSBDD_GITIGNORE"
-if ! grep -qx "__pycache__/" "$DIFFSBDD_GITIGNORE"; then
-    printf "__pycache__/\n" >> "$DIFFSBDD_GITIGNORE"
-fi
-printf "  \e[32m\u2714\e[0m DiffSBDD .gitignore is configured.\n"
+printf "  Applying pretrained runtime compatibility patches...\n"
+"$PYTHON_BIN" "$PROJECT_ROOT/assets/pretrained_packaging/runtime_fixes.py"
 
-# Patch DiffSBDD for newer Biopython versions without modifying the checked-in submodule.
-printf "  Applying DiffSBDD Biopython compatibility patch...\n"
-DIFFSBDD_LIGHTNING_MODULES="$PROJECT_ROOT/src/pretrained_models/DiffSBDD/lightning_modules.py"
-
-if [ -f "$DIFFSBDD_LIGHTNING_MODULES" ]; then
-    if grep -q "from Bio.PDB.Polypeptide import three_to_one" "$DIFFSBDD_LIGHTNING_MODULES"; then
-        sed -i \
-            "s/from Bio.PDB.Polypeptide import three_to_one/from Bio.Data.IUPACData import protein_letters_3to1/" \
-            "$DIFFSBDD_LIGHTNING_MODULES"
-    fi
-
-    if grep -q "three_to_one(res.get_resname())" "$DIFFSBDD_LIGHTNING_MODULES"; then
-        sed -i \
-            "s/three_to_one(res.get_resname())/protein_letters_3to1[res.get_resname().title()]/g" \
-            "$DIFFSBDD_LIGHTNING_MODULES"
-    fi
-
-    printf "  \e[32m\u2714\e[0m DiffSBDD Biopython compatibility patch applied.\n"
-else
-    printf "  \e[31m\u2718\e[0m DiffSBDD lightning_modules.py not found: %s\n" "$DIFFSBDD_LIGHTNING_MODULES"
-    exit 1
-fi
-
-printf "  Applying DiffSBDD RDKit ligand compatibility patch...\n"
-DIFFSBDD_UTILS="$PROJECT_ROOT/src/pretrained_models/DiffSBDD/utils.py"
-
-if [ -f "$DIFFSBDD_UTILS" ]; then
-    if ! grep -q "if not isinstance(ligand, str):" "$DIFFSBDD_UTILS"; then
-        sed -i '/^def get_pocket_from_ligand(pdb_model, ligand, dist_cutoff=8.0):$/{
-            n
-            s/^$/    if not isinstance(ligand, str):/
-            a\
-        ligand_coords = torch.from_numpy(ligand.GetConformer().GetPositions()).float()\
-        resi = None
-        }' "$DIFFSBDD_UTILS"
-
-        sed -i \
-            '0,/^    if ligand\.endswith("\.sdf"):/s//    elif ligand.endswith(".sdf"):/' \
-            "$DIFFSBDD_UTILS"
-    fi
-
-    printf "  \e[32m\u2714\e[0m DiffSBDD RDKit ligand compatibility patch applied.\n"
-else
-    printf "  \e[31m\u2718\e[0m DiffSBDD utils.py not found: %s\n" "$DIFFSBDD_UTILS"
-    exit 1
-fi
-
-printf "  Applying DiffSBDD Open Babel import compatibility patch...\n"
-DIFFSBDD_MOLECULE_BUILDER="$PROJECT_ROOT/src/pretrained_models/DiffSBDD/analysis/molecule_builder.py"
-
-if [ -f "$DIFFSBDD_MOLECULE_BUILDER" ]; then
-    if grep -q "^import openbabel$" "$DIFFSBDD_MOLECULE_BUILDER"; then
-        sed -i \
-            "s/^import openbabel$/from openbabel import openbabel/" \
-            "$DIFFSBDD_MOLECULE_BUILDER"
-    fi
-
-    printf "  \e[32m\u2714\e[0m DiffSBDD Open Babel import compatibility patch applied.\n"
-else
-    printf "  \e[31m\u2718\e[0m DiffSBDD molecule_builder.py not found: %s\n" "$DIFFSBDD_MOLECULE_BUILDER"
-    exit 1
-fi
-
-# Patch GeoDiff GIN residual connection for higher-order autograd.
-printf "  Applying GeoDiff GIN autograd compatibility patch...\n"
-GEODIFF_GIN_ENCODER="$PROJECT_ROOT/src/pretrained_models/GeoDiff/models/encoder/gin.py"
-
-if [ -f "$GEODIFF_GIN_ENCODER" ]; then
-    if grep -q "hidden += conv_input" "$GEODIFF_GIN_ENCODER"; then
-        sed -i \
-            "s/hidden += conv_input/hidden = hidden + conv_input/" \
-            "$GEODIFF_GIN_ENCODER"
-    fi
-
-    printf "  \e[32m\u2714\e[0m GeoDiff GIN autograd compatibility patch applied.\n"
-else
-    printf "  \e[31m\u2718\e[0m GeoDiff GIN encoder not found: %s\n" "$GEODIFF_GIN_ENCODER"
-    exit 1
-fi
+printf "  Applying pretrained dependency packaging patches...\n"
+"$PYTHON_BIN" "$PROJECT_ROOT/assets/pretrained_packaging/dependency_resolve.py"
 
 # Download DiffSBDD checkpoints
 printf "  Downloading DiffSBDD checkpoints...\n"

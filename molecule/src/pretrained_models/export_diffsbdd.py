@@ -12,7 +12,7 @@ from rdkit.Chem import Mol
 from torch_scatter import scatter_add, scatter_mean
 
 if TYPE_CHECKING:
-    from pretrained_models.DiffSBDD.lightning_modules import LigandPocketDDPM
+    from diffsbdd.lightning_modules import LigandPocketDDPM
 
 
 _DIFFSBDD_ROOT = Path(__file__).resolve().parent / "DiffSBDD"
@@ -54,8 +54,8 @@ def _diffsbdd_import_context():
 
 def _load_diffsbdd_helpers():
     with _diffsbdd_import_context():
-        molecule_builder = importlib.import_module("DiffSBDD.analysis.molecule_builder")
-        diff_utils = importlib.import_module("DiffSBDD.utils")
+        molecule_builder = importlib.import_module("diffsbdd.analysis.molecule_builder")
+        diff_utils = importlib.import_module("diffsbdd.utils")
     return (
         molecule_builder.build_molecule,
         molecule_builder.process_molecule,
@@ -75,7 +75,7 @@ def _load_diffsbdd_helpers():
 def export_diffsbdd(ckpt, device="cpu"):
     # fix_biopython_imports()
     with _diffsbdd_import_context():
-        lightning_modules = importlib.import_module("DiffSBDD.lightning_modules")
+        lightning_modules = importlib.import_module("diffsbdd.lightning_modules")
     _LigandPocketDDPM = lightning_modules.LigandPocketDDPM
 
     model: LigandPocketDDPM = _LigandPocketDDPM.load_from_checkpoint(str(ckpt), map_location=device)

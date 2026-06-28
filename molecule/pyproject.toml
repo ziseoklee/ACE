@@ -35,6 +35,9 @@ find-links = [
 ]
 
 [tool.uv.sources]
+diffsbdd = { path = "src/pretrained_models/DiffSBDD", editable = false }
+"e3-diffusion-for-molecules" = { path = "src/pretrained_models/e3_diffusion_for_molecules", editable = false }
+geodiff = { path = "src/pretrained_models/GeoDiff", editable = false }
 torch = { index = "pytorch" }
 torchvision = { index = "pytorch" }
 
@@ -53,20 +56,19 @@ src = "src"
 configs = "src/configs"
 utils = "src/utils"
 pretrained_models = "src/pretrained_models"
-DiffSBDD = "src/pretrained_models/DiffSBDD"
-e3_diffusion_for_molecules = "src/pretrained_models/e3_diffusion_for_molecules"
-GeoDiff = "src/pretrained_models/GeoDiff"
 
 [tool.setuptools.packages.find]
-where = [".", "src", "src/pretrained_models"]
+where = [".", "src"]
 include = [
     "src",
     "configs*",
     "utils*",
     "pretrained_models*",
-    "DiffSBDD*",
-    "e3_diffusion_for_molecules*",
-    "GeoDiff*",
+]
+exclude = [
+    "pretrained_models.DiffSBDD*",
+    "pretrained_models.e3_diffusion_for_molecules*",
+    "pretrained_models.GeoDiff*",
 ]
 namespaces = true
 

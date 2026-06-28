@@ -17,12 +17,12 @@ from torch_geometric.data import Data, Dataset
 from torch_geometric.transforms import Compose
 
 if TYPE_CHECKING:
-    from pretrained_models.GeoDiff.models.epsnet import get_model
-    from pretrained_models.GeoDiff.models.epsnet.dualenc import DualEncoderEpsNetwork, clip_norm
-    from pretrained_models.GeoDiff.models.geometry import eq_transform
-    from pretrained_models.GeoDiff.utils.datasets import rdmol_to_data
-    from pretrained_models.GeoDiff.utils.misc import repeat_data
-    from pretrained_models.GeoDiff.utils.transforms import AddHigherOrderEdges, CountNodesPerGraph
+    from geodiff.models.epsnet import get_model
+    from geodiff.models.epsnet.dualenc import DualEncoderEpsNetwork, clip_norm
+    from geodiff.models.geometry import eq_transform
+    from geodiff.utils.datasets import rdmol_to_data
+    from geodiff.utils.misc import repeat_data
+    from geodiff.utils.transforms import AddHigherOrderEdges, CountNodesPerGraph
 
 
 _GEODIFF_ROOT = Path(__file__).resolve().parent / "GeoDiff"
@@ -61,12 +61,12 @@ def _public_symbols(module):
 
 def _load_geodiff_helpers():
     with _geodiff_import_context():
-        epsnet = importlib.import_module("GeoDiff.models.epsnet")
-        dualenc = importlib.import_module("GeoDiff.models.epsnet.dualenc")
-        geometry = importlib.import_module("GeoDiff.models.geometry")
-        datasets = importlib.import_module("GeoDiff.utils.datasets")
-        misc = importlib.import_module("GeoDiff.utils.misc")
-        transforms = importlib.import_module("GeoDiff.utils.transforms")
+        epsnet = importlib.import_module("geodiff.models.epsnet")
+        dualenc = importlib.import_module("geodiff.models.epsnet.dualenc")
+        geometry = importlib.import_module("geodiff.models.geometry")
+        datasets = importlib.import_module("geodiff.utils.datasets")
+        misc = importlib.import_module("geodiff.utils.misc")
+        transforms = importlib.import_module("geodiff.utils.transforms")
 
     symbols = {}
     for module in (epsnet, datasets, misc, transforms):

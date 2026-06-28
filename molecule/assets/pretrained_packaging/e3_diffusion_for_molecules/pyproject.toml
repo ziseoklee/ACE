@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "e3-diffusion-for-molecules"
+version = "0.0.0"
+requires-python = ">=3.8"
+dependencies = []
+
+[tool.setuptools]
+packages = [
+    "e3_diffusion_for_molecules",
+    "e3_diffusion_for_molecules.configs",
+    "e3_diffusion_for_molecules.egnn",
+    "e3_diffusion_for_molecules.equivariant_diffusion",
+    "e3_diffusion_for_molecules.generated_samples.gschnet",
+    "e3_diffusion_for_molecules.qm9",
+    "e3_diffusion_for_molecules.qm9.data",
+    "e3_diffusion_for_molecules.qm9.data.prepare",
+    "e3_diffusion_for_molecules.qm9.property_prediction",
+    "e3_diffusion_for_molecules.qm9.property_prediction.models",
+]
+
+[tool.setuptools.package-dir]
+e3_diffusion_for_molecules = "."
+"e3_diffusion_for_molecules.configs" = "configs"
+"e3_diffusion_for_molecules.egnn" = "egnn"
+"e3_diffusion_for_molecules.equivariant_diffusion" = "equivariant_diffusion"
+"e3_diffusion_for_molecules.generated_samples.gschnet" = "generated_samples/gschnet"
+"e3_diffusion_for_molecules.qm9" = "qm9"
+"e3_diffusion_for_molecules.qm9.data" = "qm9/data"
+"e3_diffusion_for_molecules.qm9.data.prepare" = "qm9/data/prepare"
+"e3_diffusion_for_molecules.qm9.property_prediction" = "qm9/property_prediction"
+"e3_diffusion_for_molecules.qm9.property_prediction.models" = "qm9/property_prediction/models"
