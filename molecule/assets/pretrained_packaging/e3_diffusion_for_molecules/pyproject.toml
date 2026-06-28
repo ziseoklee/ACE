@@ -4,9 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "e3-diffusion-for-molecules"
-version = "0.0.0"
+version = "0.1.0"
 requires-python = ">=3.8"
-dependencies = []
+dependencies = [
+    "imageio",
+    "matplotlib>=1.5.1",
+    "numpy>=1.11.1",
+    "rdkit",
+    "scipy",
+    "torch",
+    "torchvision",
+    "tqdm",
+    "wandb",
+]
 
 [tool.setuptools]
 packages = [
@@ -33,3 +43,6 @@ e3_diffusion_for_molecules = "."
 "e3_diffusion_for_molecules.qm9.data.prepare" = "qm9/data/prepare"
 "e3_diffusion_for_molecules.qm9.property_prediction" = "qm9/property_prediction"
 "e3_diffusion_for_molecules.qm9.property_prediction.models" = "qm9/property_prediction/models"
+
+[tool.setuptools.package-data]
+e3_diffusion_for_molecules = ["configs/*.yaml"]

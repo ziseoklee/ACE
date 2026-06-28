@@ -5,14 +5,33 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "diffsbdd"
 version = "0.1.0"
-requires-python = ">=3.8"
-dependencies = []
-
-[tool.uv]
-find-links = [
-    "https://data.pyg.org/whl/torch-2.4.0+cu121.html"
+requires-python = ">=3.10.4"
+dependencies = [
+    "biopython>=1.79",
+    "imageio>=2.21.2",
+    "matplotlib>=3.7.5",
+    "networkx>=3.3",
+    "numpy>=1.26.4",
+    "openbabel-wheel>=3.1.1",
+    "pandas>=2.2.2",
+    "protobuf>=3.20,<3.21",
+    "pytorch-lightning>=1.8.4",
+    "pyyaml>=6.0",
+    "rdkit>=2022.3.2",
+    "scipy>=1.13.1",
+    "seaborn>=0.13.2",
+    "torch>=2.0.1",
+    "torchmetrics>=1.4.2",
+    "tqdm>=4.66.5",
+    "wandb>=0.13.1",
 ]
 
+[project.optional-dependencies]
+# DiffSBDD uses torch-scatter, but the concrete PyTorch/CUDA ABI pin is owned
+# by the root project's `pytorch-geometric` dependency group.
+pytorch-geometric = [
+    "torch-scatter>=2.1.2",
+]
 
 [tool.setuptools]
 packages = [
@@ -29,3 +48,8 @@ diffsbdd = "."
 "diffsbdd.analysis.SA_Score" = "analysis/SA_Score"
 "diffsbdd.data" = "data"
 "diffsbdd.equivariant_diffusion" = "equivariant_diffusion"
+
+[tool.setuptools.package-data]
+diffsbdd = [
+    "configs/*.yml",
+]

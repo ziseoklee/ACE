@@ -6,7 +6,29 @@ build-backend = "setuptools.build_meta"
 name = "geodiff"
 version = "0.0.0"
 requires-python = ">=3.8"
-dependencies = []
+dependencies = [
+    "easydict>=1.9",
+    "networkx>=2.5.1",
+    "numpy>=1.19.2",
+    "pandas>=1.1.4",
+    "pyyaml>=5.3.1",
+    "rdkit>=2020.9.1",
+    "scipy>=1.5.3",
+    "torch>=1.8.1",
+    "torchvision>=0.9.1",
+    "tqdm>=4.60.0",
+]
+
+[project.optional-dependencies]
+# GeoDiff uses the PyTorch Geometric stack, but the concrete PyTorch/CUDA ABI
+# pins are owned by the root project's `pytorch-geometric` dependency group.
+pytorch-geometric = [
+    "torch-cluster>=1.6.3",
+    "torch-geometric>=2.6.1",
+    "torch-scatter>=2.1.2",
+    "torch-sparse>=0.6.18",
+    "torch-spline-conv>=1.2.2",
+]
 
 [tool.setuptools]
 packages = [
@@ -25,3 +47,8 @@ geodiff = "."
 "geodiff.models.epsnet" = "models/epsnet"
 "geodiff.utils" = "utils"
 "geodiff.utils.evaluation" = "utils/evaluation"
+
+[tool.setuptools.package-data]
+geodiff = [
+    "configs/*.yml",
+]
