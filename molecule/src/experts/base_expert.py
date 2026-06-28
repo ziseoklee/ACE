@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Any
 
 import torch
 from jaxtyping import Float
@@ -9,16 +10,18 @@ class MoEExpertABC(ABC):
     Abstract base class for MoE experts.
     """
 
+    device: str
+    model: Any
+    model_config: Any
+
     @classmethod
     @abstractmethod
-    def from_pretrained(cls, device: str, *args, **kwargs) -> "MoEExpertABC":
+    def from_pretrained(cls, device: str) -> "MoEExpertABC":
         """
         Load a pretrained MoE expert model.
 
         Args:
             device: The device on which to load the model.
-            *args: Additional positional arguments for the model initialization.
-            **kwargs: Additional keyword arguments for the model initialization.
 
         Returns:
             An instance of the MoE expert model.

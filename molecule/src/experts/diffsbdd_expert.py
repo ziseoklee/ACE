@@ -24,11 +24,13 @@ class DiffSBDDExpert(MoEExpertABC):
 
     device: str
     model: LigandPocketDDPM
+    model_config: None
 
-    def __init__(self, device: str, model: LigandPocketDDPM):
+    def __init__(self, device: str, model: LigandPocketDDPM, model_config: None = None):
         super().__init__()
         self.device = device
         self.model = model.to(self.device)
+        self.model_config = model_config
 
     @classmethod
     def from_pretrained(cls, device: str):
