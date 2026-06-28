@@ -29,15 +29,11 @@ from pretrained_models.export_edm import score_function as score_function_edm
 from pretrained_models.export_geodiff import prepare_data as prepare_data_geodiff
 from pretrained_models.export_geodiff import score_function as score_function_geodiff
 from src.distributions import FixedPointDistribution
+from src.experts import DiffSBDDExpert, EDMExpert, GeoDiffExpert
 from src.probability_path import MoEProbabilityPath, PaddedProbabilityPath, ProbabilityPath
 from src.sampler import MoEPDESampler
 from src.scheduler import DiffSBDDScheduler, EDMScheduler, GeoDiffScheduler
-from utils.inference_utils import (
-    load_diffsbdd,
-    load_edm,
-    load_geodiff,
-    replace_mol_topology_by_fragment,
-)
+from utils.inference_utils import replace_mol_topology_by_fragment
 from utils.postprocess_valfix_utils import postprocess_valfix
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -329,9 +325,15 @@ def run_inference(cfg: DictConfig, output_dir: Path) -> None:
 
     # Load pre-trained models and prepare probability paths
     device = sampler_cfg.device
-    sbdd = load_diffsbdd(device=device)
-    args_edm, edm = load_edm(device=device)
-    args_geodiff, geodiff = load_geodiff(device=device)
+    sbdd = DiffSBDDExpert.from_pretrained(device=device).model
+
+    _edm_expert = EDMExpert.from_pretrained(device=device)
+    edm = _edm_expert.model
+    args_edm = _edm_expert.model_config
+
+    _geodiff_expert = GeoDiffExpert.from_pretrained(device=device)
+    geodiff = _geodiff_expert.model
+    args_geodiff = _geodiff_expert.model_config
 
     # Load data
     protein_pocket_pdb_path = Path(cfg.data.protein_pocket_pdb_path)
