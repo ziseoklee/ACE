@@ -3,8 +3,9 @@ import functools
 import logging
 import random
 import shutil
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, List, cast
+from typing import cast
 
 import hydra
 import hydra.core.hydra_config
@@ -128,7 +129,7 @@ def make_data_component_mask_extend(num_atoms_subset, num_atoms, type="sbdd", de
     )
 
 
-def build_exponent_list(weight_cfg: _BaseWeightConfig) -> List[Callable[[torch.Tensor], torch.Tensor]]:
+def build_exponent_list(weight_cfg: _BaseWeightConfig) -> list[Callable[[torch.Tensor], torch.Tensor]]:
     # NOTE: For ACEBumpWeightConfig, the bump function is only applied to gamma_4.
     if isinstance(weight_cfg, ACEBumpWeightConfig):
         omega = weight_cfg.omega
@@ -148,7 +149,7 @@ def build_exponent_list(weight_cfg: _BaseWeightConfig) -> List[Callable[[torch.T
     ]
 
 
-def log_exponent_list(exponent_list: List[Callable[[torch.Tensor], torch.Tensor]]) -> None:
+def log_exponent_list(exponent_list: list[Callable[[torch.Tensor], torch.Tensor]]) -> None:
     _exponent_ids = ["gamma_3", "gamma_1", "gamma_4", "gamma_2"]
     logger.info("Using exponent functions:")
     logger.info("-" * 50)
@@ -172,7 +173,7 @@ def run_single_task_sampling(
     args_edm,
     args_geodiff,
     sampler_cfg: _BaseSamplerConfig,
-    exponent_list: List[Callable[[torch.Tensor], torch.Tensor]],
+    exponent_list: list[Callable[[torch.Tensor], torch.Tensor]],
     save_dir: Path,
 ):
     device = sampler_cfg.device

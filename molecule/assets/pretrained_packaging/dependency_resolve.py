@@ -8,15 +8,15 @@ idempotent: running it multiple times should not duplicate package prefixes.
 
 import re
 import shutil
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, List, Tuple
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ASSET_ROOT = PROJECT_ROOT / "assets" / "pretrained_packaging"
 PRETRAINED_ROOT = PROJECT_ROOT / "src" / "pretrained_models"
 
 
-RegexReplacement = Tuple[str, str]
+RegexReplacement = tuple[str, str]
 
 
 def copy_pyproject(asset_dir: str, expert_dir: str) -> None:
@@ -37,7 +37,7 @@ def iter_python_files(root: Path) -> Iterable[Path]:
         yield path
 
 
-def apply_regex_replacements(root: Path, replacements: List[RegexReplacement], label: str) -> None:
+def apply_regex_replacements(root: Path, replacements: list[RegexReplacement], label: str) -> None:
     changed_files = 0
     for path in iter_python_files(root):
         old_text = path.read_text()

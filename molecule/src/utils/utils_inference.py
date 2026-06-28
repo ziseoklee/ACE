@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import List
 
 from rdkit import Chem
 
@@ -40,7 +39,7 @@ def load_edm(device="cpu"):
     return args, model
 
 
-def replace_mol_topology_by_fragment(mol: Chem.Mol, fragment: Chem.Mol, atom_indices: List[int]) -> Chem.Mol:
+def replace_mol_topology_by_fragment(mol: Chem.Mol, fragment: Chem.Mol, atom_indices: list[int]) -> Chem.Mol:
     """
     Replace topology of a subgraph in a molecule with a given fragment, preserving conformer coordinates.
 

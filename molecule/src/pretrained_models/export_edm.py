@@ -4,7 +4,7 @@ import importlib
 import pickle
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Tuple
+from typing import TYPE_CHECKING, Any
 
 import torch
 import torch.nn as nn
@@ -101,7 +101,7 @@ def prepare_data(
     num_samples: int = 10,
     num_nodes: int = 10,
     device: str = "cpu",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     batch_size = num_samples
     max_n_nodes = 29
 
@@ -155,7 +155,7 @@ def prepare_data(
 def score_function(
     t: torch.Tensor,
     z: torch.Tensor,
-    prepared_data: Dict[str, Any],
+    prepared_data: dict[str, Any],
     score_scale: float = 1.0,
 ) -> torch.Tensor:
     model: EnVariationalDiffusion = prepared_data["model"]
@@ -223,7 +223,7 @@ def encode_xh(
     model: nn.Module,
     mol: Mol,
     device="cpu",
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     assert args.dataset == "qm9", "only qm9 is supported currently"
     num_atoms = mol.GetNumAtoms()
     dataset_info = get_dataset_info(args.dataset, args.remove_h)

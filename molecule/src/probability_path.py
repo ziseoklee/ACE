@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Callable, List, Optional, Tuple
+from collections.abc import Callable
 
 import torch
 from jaxtyping import Float
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 ScoreFunctionType = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 SCORE_CLAMP_MAGNITUDE = 20.0  # ! IMPORTANT: clamp score function to avoid numerical instability near t=0 or t=1
-CacheKeyType = Tuple[int, int, int, int, Tuple[int, ...], Tuple[int, ...], torch.device, torch.device]
+CacheKeyType = tuple[int, int, int, int, tuple[int, ...], tuple[int, ...], torch.device, torch.device]
 
 
 class ProbabilityPathABC(ABC):
@@ -101,7 +101,7 @@ class PaddedProbabilityPath(ProbabilityPathABC):
     len(paths) = len(mask_list) = 2 should hold. The first path will be responsible for original data dimensions, and the second path will be responsible for the extra dimensions (e.g., for control or steering). The masks indicate which dimensions each path is responsible for.
     """
 
-    def __init__(self, paths: List["ProbabilityPath"], mask_list: List[torch.Tensor]):
+    def __init__(self, paths: list["ProbabilityPath"], mask_list: list[torch.Tensor]):
         assert len(paths) == len(mask_list), "Number of paths and masks must be the same"
         assert len(paths) == 2, "Paths must be of length 2 for original and extra dimensions"
         self.paths = paths
@@ -155,9 +155,9 @@ class MoEProbabilityPath(ProbabilityPathABC):
     def __init__(
         self,
         scheduler: SchedulerABC,  # global noise schedule for MoE path, can be different from individual paths' schedulers
-        q_list: List["PaddedProbabilityPath"],
-        mask_list: List[torch.Tensor],
-        exponent_list: List[Callable[[torch.Tensor], torch.Tensor]],
+        q_list: list["PaddedProbabilityPath"],
+        mask_list: list[torch.Tensor],
+        exponent_list: list[Callable[[torch.Tensor], torch.Tensor]],
         sample_size: int,
     ):
         super().__init__()
@@ -179,7 +179,7 @@ class MoEProbabilityPath(ProbabilityPathABC):
         return self.q_list[0].reverse
 
     def clear_cache(self):
-        self._cache_key: Optional[CacheKeyType] = None
+        self._cache_key: CacheKeyType | None = None
         self._cache = {}
 
     def _make_cache_key(
@@ -332,7 +332,7 @@ class MoEProbabilityPath(ProbabilityPathABC):
         t: Float[torch.Tensor, "B 1"],
         x: Float[torch.Tensor, "B D"],
         use_logq: bool,
-        logq_tensor: Optional[Float[torch.Tensor, "B E 1"]],
+        logq_tensor: Float[torch.Tensor, "B E 1"] | None,
     ) -> Float[torch.Tensor, " B"]:
         """
         Calculate the time derivative of log weight for each expert, which is used for resampling and logq correction.

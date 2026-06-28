@@ -2,7 +2,7 @@ import contextlib
 import importlib
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
@@ -91,7 +91,7 @@ def prepare_data(
     num_samples: int = 10,
     num_nodes: int = 10,
     device: str = "cpu",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     pdb_struct = PDBParser(QUIET=True).get_structure("", pdb_file)[0]
     residues = get_pocket_from_ligand(pdb_struct, ref_ligand)
     if isinstance(model, torch.nn.DataParallel):
@@ -137,7 +137,7 @@ def prepare_data(
 def score_function(
     t: torch.Tensor,
     z: torch.Tensor,
-    prepared_data: Dict[str, Any],
+    prepared_data: dict[str, Any],
     score_scale: float = 1.0,
 ) -> torch.Tensor:
     model: LigandPocketDDPM = prepared_data["model"]
@@ -202,8 +202,8 @@ def score_function(
 def interleave_fn(
     z_lig: torch.Tensor,
     choice: np.ndarray,
-    prepared_data: Dict[str, Any],
-    mask: Optional[torch.Tensor] = None,
+    prepared_data: dict[str, Any],
+    mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
     model: LigandPocketDDPM = prepared_data["model"]
     lig_mask = prepared_data["lig_mask"]
@@ -278,10 +278,10 @@ def interleave_fn(
 
 def postprocess_fn(
     z_lig: torch.Tensor,
-    prepared_data: Dict[str, Any],
-    mask: Optional[torch.Tensor] = None,
-    frag_atom_type: Optional[torch.Tensor] = None,
-) -> List[Optional[Mol]]:
+    prepared_data: dict[str, Any],
+    mask: torch.Tensor | None = None,
+    frag_atom_type: torch.Tensor | None = None,
+) -> list[Mol | None]:
     model: LigandPocketDDPM = prepared_data["model"]
     lig_mask = prepared_data["lig_mask"]
     pocket = prepared_data["pocket"]
@@ -362,7 +362,7 @@ def postprocess_fn(
     return molecules
 
 
-def _batch_to_list_preserve_atom_order(data: torch.Tensor, batch_mask: torch.Tensor) -> Tuple[torch.Tensor, ...]:
+def _batch_to_list_preserve_atom_order(data: torch.Tensor, batch_mask: torch.Tensor) -> tuple[torch.Tensor, ...]:
     """Split a flattened ligand batch without reordering atoms inside each sample."""
     if batch_mask.device != data.device:
         batch_mask = batch_mask.to(data.device)

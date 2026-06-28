@@ -6,7 +6,7 @@ import sys
 from collections import defaultdict
 from glob import glob
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
 import torch
 import torch.nn as nn
@@ -188,7 +188,7 @@ def export_geodiff(ckpt, device="cpu"):
     return config, model
 
 
-def make_inferernce_dataset(rdmol_list: List[Mol], transforms):
+def make_inferernce_dataset(rdmol_list: list[Mol], transforms):
     data_list = []
     for rdmol in rdmol_list:
         data_list.append(rdmol_to_data(rdmol))
@@ -203,7 +203,7 @@ def prepare_data(
     mol: Mol,
     num_samples: int = 10,
     device: str = "cpu",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     global_start_sigma = 0.5
     w_global = 1.0
     clip = 1000.0
@@ -244,7 +244,7 @@ def prepare_data(
 def score_function(
     t: torch.Tensor,
     z: torch.Tensor,
-    prepared_data: Dict[str, Any],
+    prepared_data: dict[str, Any],
     score_scale: float = 1.0,
 ) -> torch.Tensor:
     model: DualEncoderEpsNetwork = prepared_data["model"]
