@@ -32,13 +32,13 @@ from src.distributions import FixedPointDistribution
 from src.probability_path import MoEProbabilityPath, PaddedProbabilityPath, ProbabilityPath
 from src.sampler import MoEPDESampler
 from src.scheduler import DiffSBDDScheduler, EDMScheduler, GeoDiffScheduler
-from utils.utils_inference import (
+from utils.inference_utils import (
     load_diffsbdd,
     load_edm,
     load_geodiff,
     replace_mol_topology_by_fragment,
 )
-from utils.utils_postprocess_valfix import postprocess_valfix
+from utils.postprocess_valfix_utils import postprocess_valfix
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
