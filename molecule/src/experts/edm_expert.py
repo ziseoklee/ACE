@@ -5,6 +5,7 @@ import pickle
 import torch
 from e3_diffusion_for_molecules.configs.datasets_config import get_dataset_info
 from e3_diffusion_for_molecules.equivariant_diffusion.en_diffusion import EnVariationalDiffusion
+from e3_diffusion_for_molecules.equivariant_diffusion.utils import assert_mean_zero_with_mask
 from e3_diffusion_for_molecules.qm9.models import get_model
 from jaxtyping import Float
 
@@ -30,6 +31,8 @@ class EDMExpert(MoEExpertABC):
     device: str
     model: EnVariationalDiffusion
     model_config: argparse.Namespace
+
+    _EDM_MAX_NODES = 29  # Maximum number of nodes in the QM9 dataset
 
     def __init__(self, device: str, model: EnVariationalDiffusion, model_config: argparse.Namespace):
         super().__init__()
@@ -63,7 +66,39 @@ class EDMExpert(MoEExpertABC):
 
     def prepare_data(self, batch_size: int, num_nodes: int):
         # Implementation for preparing data specific to EDM
-        ...
+        assert num_nodes <= self._EDM_MAX_NODES, (
+            f"num_nodes must be <= {self._EDM_MAX_NODES} as per the EDM model's training configuration."
+        )
+
+        node_mask = torch.ones(batch_size, num_nodes)
+
+        # Compute edge_mask; only consider edges between existing nodes (excluding self-loops)
+        edge_mask = node_mask.unsqueeze(1) * node_mask.unsqueeze(2)
+        diag_mask = ~torch.eye(edge_mask.size(1), dtype=torch.bool).unsqueeze(0)
+        edge_mask *= diag_mask
+        edge_mask = edge_mask.view(batch_size * num_nodes * num_nodes, 1).to(self.device)
+
+        node_mask = node_mask.unsqueeze(2).to(self.device)
+
+        z = self.model.sample_combined_position_feature_noise(batch_size, num_nodes, node_mask)
+        n_dims = self.model.n_dims
+        assert_mean_zero_with_mask(z[:, :, :n_dims], node_mask)
+
+        data_shape = z.shape
+        z = z.reshape(batch_size, -1)
+
+        prepared_data = {
+            "model": self.model,  # todo; remove this later
+            "batch_size": batch_size,  # todo; remove this later
+            "node_mask": node_mask,
+            "edge_mask": edge_mask,
+            "context": None,  # todo; remove this later
+            "max_n_nodes": self._EDM_MAX_NODES,  # todo; remove this later
+            "device": self.device,  # todo; remove this later
+            "z": z,
+            "data_shape": data_shape,
+        }
+        return prepared_data
 
     def score(
         self,
@@ -88,3 +123,6 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     edm_expert = EDMExpert.from_pretrained(device=device)
     logger.info("EDM Expert loaded successfully.")
+
+    prepared_data = edm_expert.prepare_data(batch_size=10, num_nodes=10)
+    print("Prepared data keys:", prepared_data.keys())

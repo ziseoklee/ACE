@@ -1,8 +1,13 @@
 import logging
+from pathlib import Path
 
 import torch
+from Bio.PDB.PDBParser import PDBParser
 from diffsbdd.lightning_modules import LigandPocketDDPM
+from diffsbdd.utils import get_pocket_from_ligand, num_nodes_to_batch_mask
 from jaxtyping import Float
+from rdkit import Chem
+from torch_scatter import scatter_mean
 
 from src.const import PRETRAINED_MODEL_DIR
 from src.experts.base_expert import MoEExpertABC
@@ -10,6 +15,8 @@ from src.utils.logging_utils import redirect_output_to_logger
 
 DIFFSBDD_SOURCE_DIR = PRETRAINED_MODEL_DIR / "DiffSBDD"
 DIFFSBDD_CKPT_PATH = DIFFSBDD_SOURCE_DIR / "checkpoints" / "crossdocked_fullatom_cond.ckpt"
+
+PathLike = Path | str
 
 
 logger = logging.getLogger(__name__)
@@ -37,7 +44,7 @@ class DiffSBDDExpert(MoEExpertABC):
         logger.info(f"Loading DiffSBDD expert from pretrained model at {DIFFSBDD_CKPT_PATH}")
 
         with redirect_output_to_logger(logger):
-            model = LigandPocketDDPM.load_from_checkpoint(DIFFSBDD_CKPT_PATH, map_location=device)
+            model = LigandPocketDDPM.load_from_checkpoint(DIFFSBDD_CKPT_PATH, map_location=device, weights_only=False)
         model.to(device)
 
         n_params = sum(p.numel() for p in model.parameters())
@@ -46,9 +53,46 @@ class DiffSBDDExpert(MoEExpertABC):
         instance = cls(device=device, model=model)
         return instance
 
-    def prepare_data(self, batch_size: int, num_nodes: int):
+    def prepare_data(
+        self,
+        batch_size: int,
+        num_nodes: int,
+        protein_pocket_pdb_path: PathLike,
+        reference_ligand_mol: Chem.Mol,
+    ):
         # Implementation for preparing data specific to DiffSBDD
-        ...
+        protein_pocket_pdb_path = Path(protein_pocket_pdb_path)
+        parser = PDBParser(QUIET=True)
+        protein_pocket_structure = parser.get_structure("", str(protein_pocket_pdb_path))[0]  # type: ignore
+        residues = get_pocket_from_ligand(protein_pocket_structure, reference_ligand_mol)
+
+        pocket = self.model.prepare_pocket(residues, repeats=batch_size)
+        pocket: dict[str, torch.Tensor] = self.model.ddpm.normalize(pocket=pocket)[1]  # type: ignore
+        pocket_com_before = scatter_mean(pocket["x"], pocket["mask"], dim=0)
+        xh0_pocket = torch.cat([pocket["x"], pocket["one_hot"]], dim=1)
+        mu_lig_x = scatter_mean(pocket["x"], pocket["mask"], dim=0)
+        mu_lig_h = torch.zeros((batch_size, self.model.ddpm.atom_nf), device=self.device)
+
+        lig_mask = num_nodes_to_batch_mask(batch_size, num_nodes, device=self.device)
+        mu_lig = torch.cat([mu_lig_x, mu_lig_h], dim=1)[lig_mask]
+        sigma = torch.ones_like(pocket["size"]).unsqueeze(1)
+
+        z_lig, xh_pocket = self.model.ddpm.sample_normal_zero_com(mu_lig, xh0_pocket, sigma, lig_mask, pocket["mask"])
+        data_shape = z_lig.shape
+        z_lig = z_lig.reshape(batch_size, -1)
+
+        prepared_data = {
+            "model": self.model,  # todo; remove this later
+            "num_samples": batch_size,  # todo; remove this later
+            "lig_mask": lig_mask,
+            "pocket": pocket,
+            "pocket_com_before": pocket_com_before,
+            "device": self.device,  # todo; remove this later
+            "z": z_lig,
+            "xh_pocket": xh_pocket,
+            "data_shape": data_shape,
+        }
+        return prepared_data
 
     def score(
         self,
@@ -73,3 +117,12 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     diffsbdd_expert = DiffSBDDExpert.from_pretrained(device=device)
     logger.info("DiffSBDD Expert loaded successfully.")
+
+    reference_ligand_mol = Chem.SDMolSupplier("examples/4m7t_fragment.sdf")[0]
+    prepared_data = diffsbdd_expert.prepare_data(
+        batch_size=10,
+        num_nodes=10,
+        protein_pocket_pdb_path="examples/4m7t_pocket.pdb",
+        reference_ligand_mol=reference_ligand_mol,
+    )
+    print("Prepared data keys:", prepared_data.keys())
