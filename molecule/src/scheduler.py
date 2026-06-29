@@ -11,8 +11,13 @@ class SchedulerABC(ABC):
         pass
 
     @abstractmethod
-    def mean_coeff(self, t: Float[torch.Tensor, " B"]) -> Float[torch.Tensor, " B"]:
-        """alpha(t) in VP SDE"""
+    def ddpm_alpha2(self, t: Float[torch.Tensor, " B"]) -> Float[torch.Tensor, " B"]:
+        """DDPM alpha^2(t) = alpha(t)^2."""
+        pass
+
+    @abstractmethod
+    def ddpm_sigma2(self, t: Float[torch.Tensor, " B"]) -> Float[torch.Tensor, " B"]:
+        """DDPM sigma^2(t) = 1 - alpha(t)^2."""
         pass
 
     @abstractmethod
@@ -23,11 +28,6 @@ class SchedulerABC(ABC):
     @abstractmethod
     def diffusion_coeff(self, t: Float[torch.Tensor, " B"]) -> Float[torch.Tensor, " B"]:
         """VP SDE diffusion coefficient on forward process"""
-        pass
-
-    @abstractmethod
-    def h(self, t: Float[torch.Tensor, " B"]) -> Float[torch.Tensor, " B"]:
-        """marginal noise variance for VP SDE: 1 - alpha(t)^2"""
         pass
 
 
@@ -120,10 +120,6 @@ class DiffSBDDScheduler(SchedulerABC):
         values = self._ddpm_gammas.to(device=t.device)
         return torch.sigmoid(values[index])
 
-    def mean_coeff(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
-        """Mean coefficient: alpha_t."""
-        return torch.sqrt(self.ddpm_alpha2(t))
-
     def beta(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         """
         Piecewise-constant VP-SDE beta rate approximation:
@@ -153,10 +149,6 @@ class DiffSBDDScheduler(SchedulerABC):
     def diffusion_coeff(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         """Piecewise-constant VP-like diffusion coefficient induced by the regularized marginal schedule."""
         return torch.sqrt(self.beta(t))
-
-    def h(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
-        """Marginal noise variance: sigma_t^2 = 1 - alpha_t^2."""
-        return self.ddpm_sigma2(t)
 
 
 class EDMScheduler(SchedulerABC):
@@ -248,10 +240,6 @@ class EDMScheduler(SchedulerABC):
         values = self._ddpm_gammas.to(device=t.device)
         return torch.sigmoid(values[index])
 
-    def mean_coeff(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
-        """Mean coefficient: alpha_t."""
-        return torch.sqrt(self.ddpm_alpha2(t))
-
     def beta(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         """
         Piecewise-constant VP-SDE beta rate approximation:
@@ -281,10 +269,6 @@ class EDMScheduler(SchedulerABC):
     def diffusion_coeff(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         """Piecewise-constant VP-like diffusion coefficient induced by the regularized marginal schedule."""
         return torch.sqrt(self.beta(t))
-
-    def h(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
-        """Marginal noise variance: sigma_t^2 = 1 - alpha_t^2."""
-        return self.ddpm_sigma2(t)
 
 
 class GeoDiffScheduler(SchedulerABC):
@@ -323,8 +307,11 @@ class GeoDiffScheduler(SchedulerABC):
         # log alpha(t) = -1/2 [ beta_delta * (softplus(t) - log 2) + beta_start * t ]
         return -0.5 * (self.beta_delta / 12.0 * F.softplus((t - 0.5) * 12.0) + self.beta_start * t)
 
-    def mean_coeff(self, t: torch.Tensor) -> torch.Tensor:
-        return torch.exp(self.log_mean_coeff(t))
+    def ddpm_alpha2(self, t: torch.Tensor) -> torch.Tensor:
+        return torch.exp(2.0 * self.log_mean_coeff(t))
+
+    def ddpm_sigma2(self, t: torch.Tensor) -> torch.Tensor:
+        return 1.0 - self.ddpm_alpha2(t)
 
     def drift_coeff(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """VP SDE drift on forward process: dx = -0.5 * beta(t) * x dt + sqrt(beta(t)) dW"""
@@ -333,7 +320,3 @@ class GeoDiffScheduler(SchedulerABC):
     def diffusion_coeff(self, t: torch.Tensor) -> torch.Tensor:
         """VP SDE diffusion coefficient on forward process"""
         return torch.sqrt(self.beta(t).clamp(min=self.eps))
-
-    def h(self, t: torch.Tensor) -> torch.Tensor:
-        """marginal variance for VP SDE: 1 - alpha(t)^2"""
-        return 1.0 - torch.exp(2.0 * self.log_mean_coeff(t))

@@ -2,6 +2,9 @@ import functools
 
 import torch
 import torch.nn as nn
+from jaxtyping import Float
+
+from src.scheduler import SchedulerABC
 
 
 class MultivariateGaussian(nn.Module):
@@ -75,66 +78,6 @@ class MultivariateGaussian(nn.Module):
     def grad_log_prob(self, x):
         return -torch.einsum("ij,bj->bi", self.cov_inv, (x - self.mean))
 
-    def score(self, x, alpha, sigma, prior):
-        mean_tensor = alpha * self.mean + sigma * prior.mean
-        cov_tensor = (alpha**2).unsqueeze(2) * self.cov + (sigma**2).unsqueeze(2) * prior.cov
-        cov_inv_tensor = torch.linalg.inv(cov_tensor)
-        # print(f'x shape: {x.shape}, mean_tensor shape: {mean_tensor.shape}, cov_tensor shape: {cov_tensor.shape}, cov_inv_tensor shape: {cov_inv_tensor.shape}')
-        score = -torch.einsum("ij,ijk->ik", x - mean_tensor, cov_inv_tensor)
-        return score
-
-    def sample_test_set(self, M):
-        L = torch.linalg.cholesky(self.cov)
-        z = torch.randn(M, self.N, dtype=self.mean.dtype, device=self.device)
-        samples = self.mean + torch.matmul(z, L.T)
-        return samples
-
-    def conditional_sample_test_set(self, conditioned_indices, x):
-        # x: M x N
-        conditioned_indices = torch.tensor(conditioned_indices, dtype=torch.long, device=self.device)
-        all_indices = torch.arange(self.mean.size(0), dtype=torch.long, device=self.device)
-
-        # Find unconditioned indices
-        unconditioned_indices = all_indices[~torch.isin(all_indices, conditioned_indices)]
-
-        # Use .detach() to ensure no gradients are tracked for mean and covariance
-        mu = self.mean
-        Sigma = self.cov
-
-        # Split the mean and covariance into blocks
-        mu_A = mu[unconditioned_indices]
-        mu_B = mu[conditioned_indices]
-
-        Sigma_AA = Sigma[unconditioned_indices[:, None], unconditioned_indices]
-        Sigma_AB = Sigma[unconditioned_indices[:, None], conditioned_indices]
-        Sigma_BA = Sigma[conditioned_indices[:, None], unconditioned_indices]
-        Sigma_BB = Sigma[conditioned_indices[:, None], conditioned_indices]
-
-        Sigma_BB_inv = torch.linalg.inv(Sigma_BB)
-
-        mu_A_star = mu_A + torch.einsum("ij,kj->ki", Sigma_AB @ Sigma_BB_inv, (x - mu_B))
-        Sigma_A_star = Sigma_AA - torch.einsum("ij,kj->ki", Sigma_AB @ Sigma_BB_inv, Sigma_BA)
-
-        L = torch.linalg.cholesky(Sigma_A_star)
-        z = torch.randn(
-            mu_A_star.shape[0],
-            mu_A_star.shape[1],
-            dtype=self.mean.dtype,
-            device=self.mean.device,
-        )
-        samples = mu_A_star + torch.matmul(z, L.T)
-
-        return samples
-
-    def marginal_dist(self, indices):
-        # return new MultivariateGaussian for only the conditional indices
-        return MultivariateGaussian(
-            self.mean[torch.tensor(indices)],
-            self.cov[torch.tensor(indices)[:, None], torch.tensor(indices)],
-            normalize=self.normalize_mode,
-            device=self.device,
-        )
-
 
 class FixedPointDistribution(nn.Module):
     def __init__(self, point: torch.Tensor, device: str = "cpu"):
@@ -143,21 +86,25 @@ class FixedPointDistribution(nn.Module):
         self.point = point.to(device)
         self.device = device
 
-    def score(self, x, alpha, sigma, prior):
-        convolved = sigma[0] * prior + alpha[0] * self.point
-        return convolved.grad_log_prob(x)
-
-    def export_score_function(self, scheduler):
+    def export_score_function(self, scheduler: SchedulerABC):
         prior = MultivariateGaussian(
             torch.zeros(self.point.shape[0]),
             torch.eye(self.point.shape[0]),
             device=self.device,
         )
-        score_fn = functools.partial(self.score, prior=prior)
 
-        def score_function(t, x):
-            alpha = scheduler.mean_coeff(t)
-            sigma = scheduler.h(t) ** 0.5
-            return score_fn(x, alpha, sigma)
+        def score(
+            t: Float[torch.Tensor, "B 1"],
+            x: Float[torch.Tensor, "B D"],
+            prior: MultivariateGaussian,
+            point: torch.Tensor,
+        ):
+            alpha = scheduler.ddpm_alpha2(t.squeeze()).sqrt()
+            sigma = scheduler.ddpm_sigma2(t.squeeze()).sqrt()
 
-        return score_function
+            convolved: MultivariateGaussian = sigma[0] * prior + alpha[0] * point  # type: ignore
+            return convolved.grad_log_prob(x)
+
+        score_fn = functools.partial(score, prior=prior, point=self.point)
+
+        return score_fn
