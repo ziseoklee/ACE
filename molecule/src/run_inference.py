@@ -38,7 +38,7 @@ from utils.postprocess_valfix_utils import postprocess_valfix
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).parents[1]
+
 ExponentFunctionType = Callable[[Float[torch.Tensor, "B 1"]], Float[torch.Tensor, "B 1"]]
 
 
@@ -324,7 +324,7 @@ def run_inference(cfg: DictConfig, output_dir: Path) -> None:
     logger.info("Inference and postprocessing completed successfully.")
 
 
-@hydra.main(config_path="../configs", config_name="inference", version_base=None)
+@hydra.main(config_path="./configs", config_name="inference", version_base=None)
 def main(cfg: DictConfig) -> None:
 
     output_dir: Path
