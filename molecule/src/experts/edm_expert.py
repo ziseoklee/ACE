@@ -9,6 +9,7 @@ from e3_diffusion_for_molecules.equivariant_diffusion.en_diffusion import EnVari
 from e3_diffusion_for_molecules.equivariant_diffusion.utils import assert_mean_zero_with_mask, remove_mean_with_mask
 from e3_diffusion_for_molecules.qm9.models import get_model
 from jaxtyping import Float
+from rdkit.Chem.rdchem import Mol
 
 from src.experts import PRETRAINED_MODEL_DIR
 from src.experts.base_expert import MoEExpertABC
@@ -78,6 +79,28 @@ class EDMExpert(MoEExpertABC):
 
         instance = cls(device=device, model=model, model_config=edm_config)
         return instance
+
+    def encode_xh(self, mol: Mol) -> tuple[torch.Tensor, torch.Tensor]:
+        assert self.model_config.dataset == "qm9", "only qm9 is supported currently"
+
+        num_atoms = mol.GetNumAtoms()
+        dataset_info = get_dataset_info(self.model_config.dataset, self.model_config.remove_h)
+
+        h_cat = torch.zeros(num_atoms, len(dataset_info["atom_decoder"]), device=self.device)  # type: ignore
+        h_int = torch.zeros(num_atoms, 1, device=self.device)
+        for i in range(num_atoms):
+            atom = mol.GetAtomWithIdx(i)
+            h_cat[i, dataset_info["atom_encoder"][atom.GetSymbol()]] = 1  # type: ignore
+            if self.model_config.include_charges:
+                h_int[i][0] = atom.GetAtomicNum()
+        h = {"categorical": h_cat[None], "integer": h_int[None]}
+
+        x = torch.tensor(mol.GetConformer().GetPositions(), device=self.device)
+        node_mask = torch.ones(num_atoms, device=self.device)[:, None]
+
+        x, h, _ = self.model.normalize(x[None], h, node_mask[None])
+        h = torch.cat([h["categorical"][0], h["integer"][0]], dim=1)
+        return x[0], h
 
     def prepare_data(self, batch_size: int, num_nodes: int):
         # Implementation for preparing data specific to EDM

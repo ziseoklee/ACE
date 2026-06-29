@@ -19,7 +19,6 @@ from torch.distributions import Normal
 from configs import config as _config_registry  # Noqa: F401
 from configs.config_sampler import _BaseSamplerConfig
 from configs.config_weight import ACEBumpWeightConfig, _BaseWeightConfig
-from pretrained_models.export_edm import encode_xh
 from src.experts import DiffSBDDExpert, EDMExpert, GeoDiffExpert
 from src.moe_layout import EDM_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX, CrossDockedMoELayout
 from src.path_factory import (
@@ -103,8 +102,6 @@ def run_single_task_sampling(
     ### Experts
     edm_expert_fragment = EDMExpert.from_pretrained(device=device)
     edm_expert_ligand = EDMExpert.from_pretrained(device=device)
-    edm = edm_expert_fragment.model
-    args_edm = edm_expert_fragment.model_config
     geodiff_expert = GeoDiffExpert.from_pretrained(device=device)
     diffsbdd_expert = DiffSBDDExpert.from_pretrained(device=device)
 
@@ -122,7 +119,7 @@ def run_single_task_sampling(
     # [CONF] GeoDiff score, velocity, probability path p(Msc |Tsc)
     geodiff_expert.prepare_data(batch_size, fragment)
 
-    _, _h = encode_xh(args_edm, edm, fragment)
+    _, _h = edm_expert_fragment.encode_xh(fragment)
     h_int = _h[:, :-1].argmax(dim=-1)
     h_int = torch.tensor([edm2sbdd_atoms[v.item()] for v in h_int]).to(device)
 
