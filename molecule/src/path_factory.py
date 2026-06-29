@@ -2,7 +2,7 @@ from typing import Protocol
 
 import torch
 
-from src.distributions import FixedPointDistribution
+from src.distributions import PointMassDistribution
 from src.moe_layout import CrossDockedMoEMasks
 from src.probability_path import PaddedProbabilityPath, ProbabilityPath
 from src.scheduler import SchedulerABC
@@ -46,7 +46,7 @@ def build_padded_expert_path(
         raise ValueError("auxiliary_point size must match auxiliary_mask true count.")
 
     main_path = ProbabilityPath(scheduler, expert.score, reverse=reverse)
-    auxiliary_distribution = FixedPointDistribution(auxiliary_point, device=device)
+    auxiliary_distribution = PointMassDistribution(auxiliary_point, device=device)
     auxiliary_score = auxiliary_distribution.export_score_function(scheduler)
     auxiliary_path = ProbabilityPath(scheduler, auxiliary_score, reverse=reverse)
 

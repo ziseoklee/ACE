@@ -84,7 +84,7 @@ class MultivariateGaussian(nn.Module):
         return -torch.einsum("ij,bj->bi", self.cov_inv, (x - self.mean))
 
 
-class FixedPointDistribution(nn.Module):
+class PointMassDistribution(nn.Module):
     def __init__(self, point: torch.Tensor, device: str = "cpu"):
         super().__init__()
         assert len(point.shape) == 1
@@ -105,7 +105,7 @@ class FixedPointDistribution(nn.Module):
             point: torch.Tensor,
         ):
             assert torch.allclose(t, t[:1].expand_as(t)), (
-                "FixedPointDistribution assumes every sample in the batch shares the same timestep."
+                "PointMassDistribution assumes every sample in the batch shares the same timestep."
             )
 
             alpha = scheduler.ddpm_alpha2(t).sqrt()[0]
