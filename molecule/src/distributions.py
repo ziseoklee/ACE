@@ -6,10 +6,10 @@ import torch.nn as nn
 from jaxtyping import Float
 
 
-class Scheduler(Protocol):
-    def ddpm_alpha2(self, t: Float[torch.Tensor, " B"]) -> Float[torch.Tensor, " B"]: ...
+class MarginalScheduler(Protocol):
+    def ddpm_alpha2(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]: ...
 
-    def ddpm_sigma2(self, t: Float[torch.Tensor, " B"]) -> Float[torch.Tensor, " B"]: ...
+    def ddpm_sigma2(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]: ...
 
 
 class MultivariateGaussian(nn.Module):
@@ -91,7 +91,7 @@ class FixedPointDistribution(nn.Module):
         self.point = point.to(device)
         self.device = device
 
-    def export_score_function(self, scheduler: Scheduler):
+    def export_score_function(self, scheduler: MarginalScheduler):
         prior = MultivariateGaussian(
             torch.zeros(self.point.shape[0]),
             torch.eye(self.point.shape[0]),
@@ -104,10 +104,14 @@ class FixedPointDistribution(nn.Module):
             prior: MultivariateGaussian,
             point: torch.Tensor,
         ):
-            alpha = scheduler.ddpm_alpha2(t.squeeze()).sqrt()
-            sigma = scheduler.ddpm_sigma2(t.squeeze()).sqrt()
+            assert torch.allclose(t, t[:1].expand_as(t)), (
+                "FixedPointDistribution assumes every sample in the batch shares the same timestep."
+            )
 
-            convolved: MultivariateGaussian = sigma[0] * prior + alpha[0] * point  # type: ignore
+            alpha = scheduler.ddpm_alpha2(t).sqrt()[0]
+            sigma = scheduler.ddpm_sigma2(t).sqrt()[0]
+
+            convolved: MultivariateGaussian = sigma * prior + alpha * point  # type: ignore
             return convolved.grad_log_prob(x)
 
         score_fn = functools.partial(score, prior=prior, point=self.point)

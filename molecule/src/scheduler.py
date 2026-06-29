@@ -11,22 +11,22 @@ class SchedulerABC(ABC):
         pass
 
     @abstractmethod
-    def ddpm_alpha2(self, t: Float[torch.Tensor, " B"]) -> Float[torch.Tensor, " B"]:
+    def ddpm_alpha2(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         """DDPM alpha^2(t) = alpha(t)^2."""
         pass
 
     @abstractmethod
-    def ddpm_sigma2(self, t: Float[torch.Tensor, " B"]) -> Float[torch.Tensor, " B"]:
+    def ddpm_sigma2(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         """DDPM sigma^2(t) = 1 - alpha(t)^2."""
         pass
 
     @abstractmethod
-    def drift_coeff(self, t: Float[torch.Tensor, " B"], x: Float[torch.Tensor, "B D"]) -> Float[torch.Tensor, "B D"]:
+    def drift_coeff(self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B D"]) -> Float[torch.Tensor, "B D"]:
         """VP SDE drift on forward process: dx = -0.5 * beta(t) * x dt + sqrt(beta(t)) dW"""
         pass
 
     @abstractmethod
-    def diffusion_coeff(self, t: Float[torch.Tensor, " B"]) -> Float[torch.Tensor, " B"]:
+    def diffusion_coeff(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         """VP SDE diffusion coefficient on forward process"""
         pass
 
@@ -299,24 +299,24 @@ class GeoDiffScheduler(SchedulerABC):
         self.beta_delta = self.beta_end - self.beta_start
         self.eps = float(eps)
 
-    def beta(self, t: torch.Tensor) -> torch.Tensor:
+    def beta(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         # beta(t) = (beta_end - beta_start) * sigmoid(t) + beta_start
         return self.beta_delta * torch.sigmoid((t - 0.5) * 12.0) + self.beta_start
 
-    def log_mean_coeff(self, t: torch.Tensor) -> torch.Tensor:
+    def log_mean_coeff(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         # log alpha(t) = -1/2 [ beta_delta * (softplus(t) - log 2) + beta_start * t ]
         return -0.5 * (self.beta_delta / 12.0 * F.softplus((t - 0.5) * 12.0) + self.beta_start * t)
 
-    def ddpm_alpha2(self, t: torch.Tensor) -> torch.Tensor:
+    def ddpm_alpha2(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         return torch.exp(2.0 * self.log_mean_coeff(t))
 
-    def ddpm_sigma2(self, t: torch.Tensor) -> torch.Tensor:
+    def ddpm_sigma2(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         return 1.0 - self.ddpm_alpha2(t)
 
-    def drift_coeff(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+    def drift_coeff(self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B D"]) -> Float[torch.Tensor, "B D"]:
         """VP SDE drift on forward process: dx = -0.5 * beta(t) * x dt + sqrt(beta(t)) dW"""
         return -0.5 * self.beta(t) * x
 
-    def diffusion_coeff(self, t: torch.Tensor) -> torch.Tensor:
+    def diffusion_coeff(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         """VP SDE diffusion coefficient on forward process"""
         return torch.sqrt(self.beta(t).clamp(min=self.eps))
