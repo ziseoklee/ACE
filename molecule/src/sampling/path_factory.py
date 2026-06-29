@@ -3,7 +3,7 @@ from typing import Protocol
 import torch
 from jaxtyping import Bool, Float
 
-from src.distributions import PointMassDistribution
+from src.sampling.distributions import PointMassDistribution
 from src.sampling.moe_layout import CrossDockedMoEMasks
 from src.sampling.probability_path import PaddedProbabilityPath, ProbabilityPath
 from src.sampling.scheduler import SchedulerABC
