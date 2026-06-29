@@ -1,42 +1,4 @@
-from pathlib import Path
-
 from rdkit import Chem
-
-PRETRAINED_MODEL_DIR = Path(__file__).parents[1] / "pretrained_models"
-
-
-def load_diffsbdd(device="cpu"):
-    """Instantiate the DiffSBDD model and load checkpoint weights."""
-    ckpt = PRETRAINED_MODEL_DIR / "DiffSBDD" / "checkpoints" / "crossdocked_fullatom_cond.ckpt"
-
-    from pretrained_models.export_diffsbdd import export_diffsbdd
-
-    model = export_diffsbdd(ckpt, device=device)
-    model.to(device)
-    return model
-
-
-def load_geodiff(device="cpu"):
-    """Instantiate the GeoDiff model and load checkpoint weights."""
-    ckpt = PRETRAINED_MODEL_DIR / "GeoDiff" / "log" / "model" / "checkpoints" / "qm9_default.pt"
-
-    from pretrained_models.export_geodiff import export_geodiff
-
-    config, model = export_geodiff(ckpt, device=device)
-    model.to(device)
-    return config, model
-
-
-def load_edm(device="cpu"):
-    """Instantiate the EDM model and load checkpoint weights."""
-    edm_dir = PRETRAINED_MODEL_DIR / "e3_diffusion_for_molecules"
-    ckpt = edm_dir / "outputs" / "edm_qm9" / "generative_model_ema.npy"
-    args = edm_dir / "outputs" / "edm_qm9" / "args.pickle"
-
-    from pretrained_models.export_edm import export_edm
-
-    args, model = export_edm(ckpt, args, device=device)
-    return args, model
 
 
 def replace_mol_topology_by_fragment(mol: Chem.Mol, fragment: Chem.Mol, atom_indices: list[int]) -> Chem.Mol:
