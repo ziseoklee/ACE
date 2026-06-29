@@ -2,13 +2,15 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import torch
 from Bio.PDB.PDBParser import PDBParser
+from diffsbdd.analysis.molecule_builder import build_molecule, process_molecule
 from diffsbdd.lightning_modules import LigandPocketDDPM
 from diffsbdd.utils import get_pocket_from_ligand, num_nodes_to_batch_mask
-from jaxtyping import Float
+from jaxtyping import Float, Int
 from rdkit import Chem
-from torch_scatter import scatter_mean
+from torch_scatter import scatter_add, scatter_mean
 
 from src.const import PRETRAINED_MODEL_DIR
 from src.experts.base_expert import MoEExpertABC
@@ -149,13 +151,134 @@ class DiffSBDDExpert(MoEExpertABC):
 
         return score.reshape(curr_shape)
 
-    def interleave(self, *args, **kwargs):
-        # Implementation for interleaving data specific to DiffSBDD
-        ...
+    def interleave(
+        self,
+        x: Float[torch.Tensor, "B D"],
+        choices: Int[np.ndarray, " B"],
+        mask: torch.Tensor,
+    ) -> Float[torch.Tensor, "B D"]:
+        """
+        Keep DiffSBDD conditioning in the ligand-centered frame after resampling.
 
-    def postprocess(self, *args, **kwargs):
-        # Implementation for postprocessing results from the DiffSBDD expert
-        ...
+        This updates the pocket context to follow the resampled ligand particles
+        and re-centers the DiffSBDD ligand coordinates so each ligand COM stays
+        at zero, with the pocket shifted by the same translation.
+        """
+        lig_mask = self._inference_context.lig_mask
+        pocket = self._inference_context.pocket
+        xh_pocket = self._inference_context.xh_pocket
+        data_shape = self._inference_context.data_shape
+        batch_size = x.shape[0]
+
+        xh_pocket = xh_pocket.view(batch_size, -1, xh_pocket.shape[-1])[choices].reshape(xh_pocket.shape)
+        self._inference_context.xh_pocket = xh_pocket
+
+        x_clone = x.clone().detach()
+        x = x[..., mask]
+        curr_shape = x.shape
+        x = x.reshape(data_shape)
+
+        x[..., : self.model.ddpm.n_dims], xh_pocket[..., : self.model.ddpm.n_dims] = self.model.ddpm.remove_mean_batch(
+            x[..., : self.model.ddpm.n_dims],
+            xh_pocket[..., : self.model.ddpm.n_dims],
+            lig_mask,  # type: ignore
+            pocket["mask"],
+        )
+        self.model.ddpm.assert_mean_zero_with_mask(x[:, : self.model.ddpm.n_dims], lig_mask)
+
+        x_clone[..., mask] = x.reshape(curr_shape)
+        return x_clone
+
+    def decode_mu_xh_given_z0(
+        self,
+        z0_lig: Float[torch.Tensor, "N D"],
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Decode z0 with the DiffSBDD posterior mean, without final Gaussian sampling."""
+        model = self.model
+        lig_mask = self._inference_context.lig_mask
+        pocket = self._inference_context.pocket
+        xh_pocket = self._inference_context.xh_pocket
+        batch_size = self._inference_context.num_samples
+
+        t_zeros = torch.zeros(size=(batch_size, 1), device=z0_lig.device)
+        gamma_0 = model.ddpm.gamma(t_zeros)
+        net_out_lig, _ = model.ddpm.dynamics(z0_lig, xh_pocket, t_zeros, lig_mask, pocket["mask"])
+        mu_xh_lig = model.ddpm.compute_x_pred(net_out_lig, z0_lig, gamma_0, lig_mask)
+
+        x_lig, h_lig = model.ddpm.unnormalize(mu_xh_lig[:, : model.ddpm.n_dims], z0_lig[:, model.ddpm.n_dims :])
+        x_pocket, h_pocket = model.ddpm.unnormalize(
+            xh_pocket[:, : model.ddpm.n_dims],
+            xh_pocket[:, model.ddpm.n_dims :],
+        )
+
+        return x_lig, h_lig, x_pocket, h_pocket
+
+    def postprocess(
+        self,
+        x: Float[torch.Tensor, "B D"],
+        mask: torch.Tensor,
+        frag_atom_type: torch.Tensor | None = None,
+    ) -> list[Chem.Mol | None]:
+        """Convert the DiffSBDD portion of a MoE sample into RDKit molecules."""
+        model = self.model
+        lig_mask = self._inference_context.lig_mask
+        pocket = self._inference_context.pocket
+        xh_pocket = self._inference_context.xh_pocket
+        pocket_com_before = self._inference_context.pocket_com_before
+        data_shape = self._inference_context.data_shape
+        batch_size = self._inference_context.num_samples
+
+        z0_lig = x.clone().detach()[..., mask].reshape(data_shape)
+        x_lig, h_lig, x_pocket, h_pocket = self.decode_mu_xh_given_z0(z0_lig)
+
+        max_cog = scatter_add(x_lig, lig_mask, dim=0).abs().max().item()
+        if max_cog > 5e-2:
+            logger.warning("CoG drift with error %.3f. Projecting the positions down.", max_cog)
+            x_lig, x_pocket = model.ddpm.remove_mean_batch(
+                x_lig,
+                x_pocket,
+                lig_mask,  # type: ignore
+                pocket["mask"],
+            )
+        model.ddpm.assert_mean_zero_with_mask(x_lig, lig_mask)
+
+        xh_lig = torch.cat([x_lig, h_lig], dim=1)
+        xh_pocket = torch.cat([x_pocket, h_pocket], dim=1)
+
+        pocket_com_after = scatter_mean(xh_pocket[:, : model.x_dims], pocket["mask"], dim=0)
+        xh_pocket[:, : model.x_dims] += (pocket_com_before - pocket_com_after)[pocket["mask"]]
+        xh_lig[:, : model.x_dims] += (pocket_com_before - pocket_com_after)[lig_mask]
+
+        # Build mol objects
+        coordinates = xh_lig[:, : model.x_dims].detach().cpu()
+        atom_type = xh_lig[:, model.x_dims :].argmax(1).detach().cpu()
+
+        molecules: list[Chem.Mol | None] = []
+        coordinates_by_sample = self._batch_to_list_preserve_atom_order(coordinates, lig_mask.cpu())
+        atom_type_by_sample = self._batch_to_list_preserve_atom_order(atom_type, lig_mask.cpu())
+        for coordinates_sample, atom_type_sample in zip(coordinates_by_sample, atom_type_by_sample):
+            atom_type_sample = atom_type_sample.clone()
+            if frag_atom_type is not None:
+                atom_type_sample[: len(frag_atom_type)] = frag_atom_type.detach().cpu()
+
+            mol = build_molecule(coordinates_sample, atom_type_sample, model.dataset_info, add_coords=True)
+            if mol is None:
+                molecules.append(None)
+                continue
+
+            mol = process_molecule(mol, add_hydrogens=False, sanitize=False, relax_iter=0, largest_frag=False)
+            if mol is not None:
+                molecules.append(mol)
+
+        return molecules
+
+    @staticmethod
+    def _batch_to_list_preserve_atom_order(data: torch.Tensor, batch_mask: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        """Split a flattened ligand batch without reordering atoms inside each sample."""
+        if batch_mask.device != data.device:
+            batch_mask = batch_mask.to(data.device)
+        sample_ids = torch.unique(batch_mask, sorted=True)
+        return tuple(data[batch_mask == sample_id] for sample_id in sample_ids)
 
 
 if __name__ == "__main__":

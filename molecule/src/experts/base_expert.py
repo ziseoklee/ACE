@@ -29,17 +29,31 @@ class MoEExpertABC(ABC):
         ...
 
     @abstractmethod
-    def prepare_data(self, batch_size: int, *args, **kwargs) -> dict[str, Any]: ...
+    def prepare_data(self, batch_size: int, *args, **kwargs) -> dict[str, Any]:
+        """Prepare the data for inference."""
+        ...
 
     @abstractmethod
     def score(
         self,
         t: Float[torch.Tensor, " B"],
         x: Float[torch.Tensor, "B D"],
-    ) -> Float[torch.Tensor, " B"]: ...
+    ) -> Float[torch.Tensor, " B"]:
+        """Compute the score function for the given input."""
+        ...
 
     @abstractmethod
-    def interleave(self, *args, **kwargs): ...
+    def interleave(self, x: Float[torch.Tensor, "B D"], *args, **kwargs) -> Float[torch.Tensor, "B D"]:
+        """
+        Interleave function that being applied at each denoising step to ensure the
+        correct correspondence between ligand and pocket atoms.
+        """
+        ...
 
     @abstractmethod
-    def postprocess(self, *args, **kwargs): ...
+    def postprocess(self, *args, **kwargs):
+        """
+        Postprocess function that is applied after the denoising process to ensure the
+        correct correspondence between ligand and pocket atoms.
+        """
+        ...

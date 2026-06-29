@@ -165,9 +165,9 @@ class EDMExpert(MoEExpertABC):
 
         return score.reshape(curr_shape)
 
-    def interleave(self, *args, **kwargs):
-        # Implementation for interleaving data specific to EDM
-        ...
+    def interleave(self, x: Float[torch.Tensor, "B D"], *args, **kwargs) -> Float[torch.Tensor, "B D"]:
+        # Implementation for interleaving data specific to EDM; no-op
+        return x
 
     def postprocess(self, *args, **kwargs):
         # Implementation for postprocessing results from the EDM expert
