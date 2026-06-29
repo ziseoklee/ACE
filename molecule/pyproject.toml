@@ -56,6 +56,7 @@ build-backend = "setuptools.build_meta"
 src = "src"
 configs = "src/configs"
 experts = "src/experts"
+inference = "src/inference"
 sampling = "src/sampling"
 utils = "src/utils"
 postprocessing = "src/postprocessing"
@@ -67,6 +68,7 @@ include = [
     "src",
     "configs*",
     "experts*",
+    "inference*",
     "sampling*",
     "utils*",
     "postprocessing*",
