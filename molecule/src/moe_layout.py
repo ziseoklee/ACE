@@ -2,6 +2,9 @@ from dataclasses import dataclass
 from typing import Final
 
 import torch
+from jaxtyping import Bool
+
+DataMask = Bool[torch.Tensor, "data"]  # noqa: F821
 
 COORDS_DIM: Final = 3
 ATOM_TYPE_INDEX: Final = {
@@ -51,16 +54,16 @@ _EDM_PADDING_COLUMNS: Final = tuple(i for i in range(ALL_DIM) if i not in _EDM_A
 class CrossDockedMoEMasks:
     """Boolean masks describing how each expert views the shared MoE latent."""
 
-    geodiff_fragment_coords: torch.Tensor
-    geodiff_fragment_atom_types_and_charge: torch.Tensor
-    edm_fragment_xh: torch.Tensor
-    edm_fragment_padding: torch.Tensor
-    diffsbdd_ligand_xh: torch.Tensor
-    diffsbdd_ligand_padding: torch.Tensor
-    edm_ligand_xh: torch.Tensor
-    edm_ligand_padding: torch.Tensor
-    fragment_state_in_ligand: torch.Tensor
-    ligand_state: torch.Tensor
+    geodiff_fragment_coords: DataMask
+    geodiff_fragment_atom_types_and_charge: DataMask
+    edm_fragment_xh: DataMask
+    edm_fragment_padding: DataMask
+    diffsbdd_ligand_xh: DataMask
+    diffsbdd_ligand_padding: DataMask
+    edm_ligand_xh: DataMask
+    edm_ligand_padding: DataMask
+    fragment_state_in_ligand: DataMask
+    ligand_state: DataMask
 
     @property
     def sample_size(self) -> int:
@@ -113,7 +116,7 @@ class CrossDockedMoELayout:
             ligand_state=ligand_state.flatten(),
         )
 
-    def _node_mask(self, num_nodes: int, columns: range | tuple[int, ...]) -> torch.Tensor:
+    def _node_mask(self, num_nodes: int, columns: range | tuple[int, ...]) -> DataMask:
         mask = torch.zeros(num_nodes, ALL_DIM, dtype=torch.bool, device=self.device)
         mask[:, list(columns)] = True
         return mask.flatten()

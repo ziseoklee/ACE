@@ -14,8 +14,18 @@ from src.probability_path import MoEProbabilityPath
 
 logger = logging.getLogger(__name__)
 
-InterleaveFn = Callable[[torch.Tensor, np.ndarray], torch.Tensor]
-PostprocessFn = Callable[[torch.Tensor], torch.Tensor]
+ParticleState = Float[torch.Tensor, "B data"]
+ExpertLogQ = Float[torch.Tensor, "B E 1"]
+ParticleLogWeight = Float[torch.Tensor, "B"]  # noqa: F821
+Choices = Int[np.ndarray, "B"]  # noqa: F821
+CategoryLogits = Float[torch.Tensor, "K"]  # noqa: F821
+StateTrajectory = Float[torch.Tensor, "step B data"]
+LogWeightTrajectory = Float[torch.Tensor, "step B"]
+LogQTrajectory = Float[torch.Tensor, "step B E 1"]
+ChoicesTrajectory = Int[np.ndarray, "step B"]
+
+InterleaveFn = Callable[[ParticleState, Choices], ParticleState]
+PostprocessFn = Callable[[ParticleState], ParticleState]
 
 
 def computation_overhead_logger(func):
@@ -72,17 +82,17 @@ class MoEPDESampler:
     @staticmethod
     def initialize_particles(
         moe_probability_path: MoEProbabilityPath,
-        prior_sbdd: torch.Tensor,
+        prior_sbdd: ParticleState,
         batch_size: int,
         device: str,
         seed: int,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[ParticleState, ExpertLogQ, ParticleLogWeight]:
         """
         Initialize x0, logq, and log weights tensor for the sampler.
         """
         sample_size: int = moe_probability_path.sample_size
         generator = torch.Generator(device=device).manual_seed(seed)
-        x0: Float[torch.Tensor, "B data"] = torch.randn(
+        x0: ParticleState = torch.randn(
             batch_size,
             sample_size,
             generator=generator,
@@ -95,9 +105,9 @@ class MoEPDESampler:
         standard_normal_dist = Normal(loc=0.0, scale=1.0)
         logq = standard_normal_dist.log_prob(x0)
         num_experts = len(moe_probability_path.q_list)
-        logq: Float[torch.Tensor, "B E 1"] = logq.sum(dim=-1, keepdim=True).repeat(1, num_experts).unsqueeze(2)
+        logq: ExpertLogQ = logq.sum(dim=-1, keepdim=True).repeat(1, num_experts).unsqueeze(2)
 
-        logweight: Float[torch.Tensor, "B"] = torch.zeros(batch_size, device=device)  # noqa: F821, UP037
+        logweight: ParticleLogWeight = torch.zeros(batch_size, device=device)
 
         return x0, logq, logweight
 
@@ -107,10 +117,10 @@ class MoEPDESampler:
         cls,
         moe_probability_path: MoEProbabilityPath,
         sampler_cfg: _BaseSamplerConfig,
-        prior_sbdd: torch.Tensor,
+        prior_sbdd: ParticleState,
         interleave_fns: list[InterleaveFn] | None = None,
         postprocess_fns: list[PostprocessFn] | None = None,
-    ):
+    ) -> tuple[ParticleState, StateTrajectory, LogWeightTrajectory, LogQTrajectory, ChoicesTrajectory]:
         """Sample MoE paths with SDE updates before ``ode_start_t`` and ODE updates after it.
 
         During the final ODE phase, particles are propagated deterministically with
@@ -236,10 +246,10 @@ class MoEPDESampler:
 
     @staticmethod
     def apply_interleave_fns(
-        x: Float[torch.Tensor, "B data"],
-        choices: Int[np.ndarray, "B"],  # noqa: F821
+        x: ParticleState,
+        choices: Choices,
         interleave_fns: list[InterleaveFn] | None,
-    ) -> Float[torch.Tensor, "B data"]:
+    ) -> ParticleState:
         if interleave_fns is None:
             return x
 
@@ -249,9 +259,9 @@ class MoEPDESampler:
 
     @staticmethod
     def apply_postprocess_fns(
-        x: Float[torch.Tensor, "B data"],
+        x: ParticleState,
         postprocess_fns: list[PostprocessFn] | None,
-    ) -> Float[torch.Tensor, "B data"]:
+    ) -> ParticleState:
         if postprocess_fns is None:
             return x
 
@@ -261,11 +271,11 @@ class MoEPDESampler:
 
     @staticmethod
     def resample_particles(
-        logits: Float[torch.Tensor, "K"],  # noqa: F821
+        logits: CategoryLogits,
         num_out_particles: int,  # (B,)
         tol: float = 1e-6,
         stratified: bool = True,
-    ) -> Int[np.ndarray, "B"]:  # noqa: F821
+    ) -> Choices:
         """
         Draw one categorical sample per row of `logits` using stratified uniforms.
         - Collapses tiny probs (<= tol) to 0 and renormalizes.

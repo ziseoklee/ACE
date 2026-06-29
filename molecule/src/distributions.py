@@ -12,8 +12,19 @@ class MarginalScheduler(Protocol):
     def ddpm_sigma2(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]: ...
 
 
+BatchVector = Float[torch.Tensor, "B"]  # noqa: F821
+DataVector = Float[torch.Tensor, "data"]  # noqa: F821
+DataMatrix = Float[torch.Tensor, "data data"]
+
+
 class MultivariateGaussian(nn.Module):
-    def __init__(self, mean: torch.Tensor, cov: torch.Tensor, normalize=True, device="cpu"):
+    def __init__(
+        self,
+        mean: DataVector,
+        cov: DataMatrix,
+        normalize=True,
+        device="cpu",
+    ):
         super().__init__()
         self.device = device
         # breakpoint()
@@ -52,7 +63,7 @@ class MultivariateGaussian(nn.Module):
             device=self.device,
         )
 
-    def forward(self, x):
+    def forward(self, x: Float[torch.Tensor, "B data"]) -> BatchVector:
         diff = x - self.mean
         quad_form = torch.einsum("...i,ij,...j->...", diff, self.cov_inv, diff)
         if self.normalize_mode:
@@ -62,14 +73,19 @@ class MultivariateGaussian(nn.Module):
             # Full log-probability
             return self.log_coeff - 0.5 * quad_form
 
-    def log_prob(self, x):
+    def log_prob(self, x: Float[torch.Tensor, "B data"] | DataVector) -> BatchVector:
         if not isinstance(x, torch.Tensor):
             x = torch.tensor(x)
         if len(x.shape) == 1:
             x = x.unsqueeze(1)
         return self.log_coeff - 0.5 * torch.einsum("...i,ij,...j->...", x - self.mean, self.cov_inv, x - self.mean)
 
-    def convolve(self, alpha, sigma, prior):
+    def convolve(
+        self,
+        alpha: Float[torch.Tensor, "B 1"],
+        sigma: Float[torch.Tensor, "B 1"],
+        prior: "MultivariateGaussian",
+    ) -> "MultivariateGaussian":
         # assert that alpha, sigma is consistent over a batch (= t is same for all items)
         mean_tensor = alpha * self.mean + sigma * prior.mean
         cov_tensor = (alpha**2).unsqueeze(2) * self.cov + (sigma**2).unsqueeze(2) * prior.cov
@@ -80,12 +96,12 @@ class MultivariateGaussian(nn.Module):
             device=self.device,
         )
 
-    def grad_log_prob(self, x):
+    def grad_log_prob(self, x: Float[torch.Tensor, "B data"]) -> Float[torch.Tensor, "B data"]:
         return -torch.einsum("ij,bj->bi", self.cov_inv, (x - self.mean))
 
 
 class PointMassDistribution(nn.Module):
-    def __init__(self, point: torch.Tensor, device: str = "cpu"):
+    def __init__(self, point: DataVector, device: str = "cpu"):
         super().__init__()
         assert len(point.shape) == 1
         self.point = point.to(device)
@@ -102,8 +118,8 @@ class PointMassDistribution(nn.Module):
             t: Float[torch.Tensor, "B 1"],
             x: Float[torch.Tensor, "B data"],
             prior: MultivariateGaussian,
-            point: torch.Tensor,
-        ):
+            point: DataVector,
+        ) -> Float[torch.Tensor, "B data"]:
             assert torch.allclose(t, t[:1].expand_as(t)), (
                 "PointMassDistribution assumes every sample in the batch shares the same timestep."
             )

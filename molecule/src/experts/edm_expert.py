@@ -80,14 +80,18 @@ class EDMExpert(MoEExpertABC):
         instance = cls(device=device, model=model, model_config=edm_config)
         return instance
 
-    def encode_xh(self, mol: Mol) -> tuple[torch.Tensor, torch.Tensor]:
+    def encode_xh(self, mol: Mol) -> tuple[Float[torch.Tensor, "L coords"], Float[torch.Tensor, "L feature"]]:
         assert self.model_config.dataset == "qm9", "only qm9 is supported currently"
 
         num_atoms = mol.GetNumAtoms()
         dataset_info = get_dataset_info(self.model_config.dataset, self.model_config.remove_h)
 
-        h_cat = torch.zeros(num_atoms, len(dataset_info["atom_decoder"]), device=self.device)  # type: ignore
-        h_int = torch.zeros(num_atoms, 1, device=self.device)
+        h_cat: Float[torch.Tensor, "L atom_type"] = torch.zeros(
+            num_atoms,
+            len(dataset_info["atom_decoder"]),  # type: ignore
+            device=self.device,
+        )
+        h_int: Float[torch.Tensor, "L 1"] = torch.zeros(num_atoms, 1, device=self.device)
         for i in range(num_atoms):
             atom = mol.GetAtomWithIdx(i)
             h_cat[i, dataset_info["atom_encoder"][atom.GetSymbol()]] = 1  # type: ignore
@@ -95,12 +99,12 @@ class EDMExpert(MoEExpertABC):
                 h_int[i][0] = atom.GetAtomicNum()
         h = {"categorical": h_cat[None], "integer": h_int[None]}
 
-        x = torch.tensor(mol.GetConformer().GetPositions(), device=self.device)
-        node_mask = torch.ones(num_atoms, device=self.device)[:, None]
+        x: Float[torch.Tensor, "L coords"] = torch.tensor(mol.GetConformer().GetPositions(), device=self.device)
+        node_mask: Float[torch.Tensor, "L 1"] = torch.ones(num_atoms, device=self.device)[:, None]
 
-        x, h, _ = self.model.normalize(x[None], h, node_mask[None])
-        h = torch.cat([h["categorical"][0], h["integer"][0]], dim=1)
-        return x[0], h
+        x_norm, h, _ = self.model.normalize(x[None], h, node_mask[None])
+        h_norm: Float[torch.Tensor, "L feature"] = torch.cat([h["categorical"][0], h["integer"][0]], dim=1)
+        return x_norm[0], h_norm
 
     def prepare_data(self, batch_size: int, num_nodes: int):
         # Implementation for preparing data specific to EDM
@@ -108,32 +112,38 @@ class EDMExpert(MoEExpertABC):
             f"num_nodes must be <= {self._EDM_MAX_NODES} as per the EDM model's training configuration."
         )
 
-        node_mask = torch.ones(batch_size, num_nodes)
+        node_mask: Float[torch.Tensor, "B L"] = torch.ones(batch_size, num_nodes)
 
         # Compute edge_mask; only consider edges between existing nodes (excluding self-loops)
-        edge_mask = node_mask.unsqueeze(1) * node_mask.unsqueeze(2)
+        edge_mask: Float[torch.Tensor, "B L L"] = node_mask.unsqueeze(1) * node_mask.unsqueeze(2)
         diag_mask = ~torch.eye(edge_mask.size(1), dtype=torch.bool).unsqueeze(0)
         edge_mask *= diag_mask
-        edge_mask = edge_mask.view(batch_size * num_nodes * num_nodes, 1).to(self.device)
+        edge_mask_flat: Float[torch.Tensor, "B_L_L 1"] = edge_mask.view(batch_size * num_nodes * num_nodes, 1).to(
+            self.device
+        )
 
-        node_mask = node_mask.unsqueeze(2).to(self.device)
+        node_mask_3d: Float[torch.Tensor, "B L 1"] = node_mask.unsqueeze(2).to(self.device)
 
-        z = self.model.sample_combined_position_feature_noise(batch_size, num_nodes, node_mask)
+        z: Float[torch.Tensor, "B L feature"] = self.model.sample_combined_position_feature_noise(
+            batch_size,
+            num_nodes,
+            node_mask_3d,
+        )
         n_dims = self.model.n_dims
-        assert_mean_zero_with_mask(z[:, :, :n_dims], node_mask)
+        assert_mean_zero_with_mask(z[:, :, :n_dims], node_mask_3d)
 
         data_shape = z.shape
-        z = z.reshape(batch_size, -1)
+        z_flat: Float[torch.Tensor, "B data"] = z.reshape(batch_size, -1)
 
         prepared_data = {
             "model": self.model,  # todo; remove this later
             "batch_size": batch_size,  # todo; remove this later
-            "node_mask": node_mask,
-            "edge_mask": edge_mask,
+            "node_mask": node_mask_3d,
+            "edge_mask": edge_mask_flat,
             "context": None,  # todo; remove this later
             "max_n_nodes": self._EDM_MAX_NODES,  # todo; remove this later
             "device": self.device,  # todo; remove this later
-            "z": z,
+            "z": z_flat,
             "data_shape": data_shape,
         }
         # Store the prepared data for inference
@@ -180,14 +190,10 @@ class EDMExpert(MoEExpertABC):
 
         return score.reshape(curr_shape)
 
-    def interleave(
-        self, x: Float[torch.Tensor, "B data"], *args, **kwargs
-    ) -> Float[torch.Tensor, "B data"]:
+    def interleave(self, x: Float[torch.Tensor, "B data"], *args, **kwargs) -> Float[torch.Tensor, "B data"]:
         # Implementation for interleaving data specific to EDM; no-op
         return x
 
-    def postprocess(
-        self, x: Float[torch.Tensor, "B data"], *args, **kwargs
-    ) -> Float[torch.Tensor, "B data"]:
+    def postprocess(self, x: Float[torch.Tensor, "B data"], *args, **kwargs) -> Float[torch.Tensor, "B data"]:
         # Implementation for postprocessing results from the EDM expert; no-op
         return x

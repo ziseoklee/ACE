@@ -3,21 +3,28 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 
 import torch
-from jaxtyping import Float
+from jaxtyping import Bool, Float
 
 from src.scheduler import SchedulerABC
 
 logger = logging.getLogger(__name__)
 
 
-ScoreFunctionType = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+ScoreFunctionType = Callable[
+    [Float[torch.Tensor, "B 1"], Float[torch.Tensor, "B data"]],
+    Float[torch.Tensor, "B data"],
+]
+ExponentFunctionType = Callable[[Float[torch.Tensor, "B 1"]], Float[torch.Tensor, "B 1"]]
+DataMask = Bool[torch.Tensor, "data"]  # noqa: F821
 SCORE_CLAMP_MAGNITUDE = 20.0  # ! IMPORTANT: clamp score function to avoid numerical instability near t=0 or t=1
 CacheKeyType = tuple[int, int, int, int, tuple[int, ...], tuple[int, ...], torch.device, torch.device]
 
 
 class ProbabilityPathABC(ABC):
     @abstractmethod
-    def drift_coeff(self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B data"]) -> Float[torch.Tensor, "B data"]:
+    def drift_coeff(
+        self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B data"]
+    ) -> Float[torch.Tensor, "B data"]:
         pass
 
     @abstractmethod
@@ -101,7 +108,7 @@ class PaddedProbabilityPath(ProbabilityPathABC):
     len(paths) = len(mask_list) = 2 should hold. The first path will be responsible for original data dimensions, and the second path will be responsible for the extra dimensions (e.g., for control or steering). The masks indicate which dimensions each path is responsible for.
     """
 
-    def __init__(self, paths: list["ProbabilityPath"], mask_list: list[torch.Tensor]):
+    def __init__(self, paths: list["ProbabilityPath"], mask_list: list[DataMask]):
         assert len(paths) == len(mask_list), "Number of paths and masks must be the same"
         assert len(paths) == 2, "Paths must be of length 2 for original and extra dimensions"
         self.paths = paths
@@ -156,8 +163,8 @@ class MoEProbabilityPath(ProbabilityPathABC):
         self,
         scheduler: SchedulerABC,  # global noise schedule for MoE path, can be different from individual paths' schedulers
         q_list: list["PaddedProbabilityPath"],
-        mask_list: list[torch.Tensor],
-        exponent_list: list[Callable[[torch.Tensor], torch.Tensor]],
+        mask_list: list[DataMask],
+        exponent_list: list[ExponentFunctionType],
         sample_size: int,
     ):
         super().__init__()
@@ -300,7 +307,7 @@ class MoEProbabilityPath(ProbabilityPathABC):
         self,
         t: Float[torch.Tensor, "B 1"],
         x: Float[torch.Tensor, "B data"],
-    ):
+    ) -> tuple[Float[torch.Tensor, "B E 1"], Float[torch.Tensor, "B E data"]]:
         """
         Calculate the logq correction term for each expert, which is used for logq correction in drift and resampling.
         """
@@ -362,7 +369,7 @@ class MoEProbabilityPath(ProbabilityPathABC):
         return dlog_weight.squeeze(-1)  # (B,)
 
 
-def pad_tensor(x: Float[torch.Tensor, "B data"], pad_size: int, dim: int):
+def pad_tensor(x: Float[torch.Tensor, "B data"], pad_size: int, dim: int) -> Float[torch.Tensor, "B data"]:
     padding_shape = list(x.shape)
     padding_shape[dim] = pad_size - x.shape[dim]
     return torch.cat([x, torch.zeros(padding_shape, device=x.device)], dim=dim)
@@ -370,15 +377,15 @@ def pad_tensor(x: Float[torch.Tensor, "B data"], pad_size: int, dim: int):
 
 def divergence_hutchinson(
     score_fn: ScoreFunctionType,
-    t: torch.Tensor,
-    x: torch.Tensor,
+    t: Float[torch.Tensor, "B 1"],
+    x: Float[torch.Tensor, "B data"],
     n_probe: int = 1,
     rademacher: bool = True,
     create_graph: bool = False,  # sampling usually doesn't need higher-order grads
     t_eps: float = 1e-4,
     jitter: float = 1e-6,
     grad_clip: float = 1e6,
-):
+) -> Float[torch.Tensor, "B 1"]:
     """
     Safe Hutchinson trace estimator: E_eps[ eps^T (∂ score / ∂x) eps ].
 

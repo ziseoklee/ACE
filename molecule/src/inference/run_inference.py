@@ -11,6 +11,7 @@ import hydra
 import hydra.core.hydra_config
 import numpy as np
 import torch
+from jaxtyping import Float
 from omegaconf import DictConfig, OmegaConf
 from rdkit import Chem
 from rdkit.Chem.rdchem import Mol
@@ -38,6 +39,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).parents[1]
+ExponentFunctionType = Callable[[Float[torch.Tensor, "B 1"]], Float[torch.Tensor, "B 1"]]
 
 
 def seed_everything(seed):
@@ -48,7 +50,7 @@ def seed_everything(seed):
         torch.cuda.manual_seed_all(seed)
 
 
-def build_exponent_list(weight_cfg: _BaseWeightConfig) -> list[Callable[[torch.Tensor], torch.Tensor]]:
+def build_exponent_list(weight_cfg: _BaseWeightConfig) -> list[ExponentFunctionType]:
     # NOTE: For ACEBumpWeightConfig, the bump function is only applied to gamma_4.
     if isinstance(weight_cfg, ACEBumpWeightConfig):
         omega = weight_cfg.omega
@@ -68,7 +70,7 @@ def build_exponent_list(weight_cfg: _BaseWeightConfig) -> list[Callable[[torch.T
     ]
 
 
-def log_exponent_list(exponent_list: list[Callable[[torch.Tensor], torch.Tensor]]) -> None:
+def log_exponent_list(exponent_list: list[ExponentFunctionType]) -> None:
     _exponent_ids = ["gamma_3", "gamma_1", "gamma_4", "gamma_2"]
     logger.info("Using exponent functions:")
     logger.info("-" * 50)
@@ -87,7 +89,7 @@ def run_single_task_sampling(
     fragment: Mol,
     ref_ligand: Mol,
     sampler_cfg: _BaseSamplerConfig,
-    exponent_list: list[Callable[[torch.Tensor], torch.Tensor]],
+    exponent_list: list[ExponentFunctionType],
     save_dir: Path,
 ):
     device = sampler_cfg.device

@@ -1,22 +1,34 @@
 from typing import Protocol
 
 import torch
+from jaxtyping import Bool, Float
 
 from src.distributions import PointMassDistribution
 from src.moe_layout import CrossDockedMoEMasks
 from src.probability_path import PaddedProbabilityPath, ProbabilityPath
 from src.scheduler import SchedulerABC
 
+DataMask = Bool[torch.Tensor, "data"]  # noqa: F821
+DataVector = Float[torch.Tensor, "data"]  # noqa: F821
+DataFeatureMatrix = Float[torch.Tensor, "num_nodes feature"]
+FragmentFeatureMatrix = Float[torch.Tensor, "frag feature"]
+LigandFeatureMatrix = Float[torch.Tensor, "lig feature"]
+AuxiliaryPoint = DataVector | DataFeatureMatrix | FragmentFeatureMatrix | LigandFeatureMatrix
+
 
 class ScoringExpert(Protocol):
-    def score(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor: ...
+    def score(
+        self,
+        t: Float[torch.Tensor, "B 1"],
+        x: Float[torch.Tensor, "B data"],
+    ) -> Float[torch.Tensor, "B data"]: ...
 
 
 def make_zero_auxiliary_point(
     num_nodes: int,
-    auxiliary_mask: torch.Tensor,
+    auxiliary_mask: DataMask,
     device: str,
-) -> torch.Tensor:
+) -> DataFeatureMatrix:
     """Create a per-node zero point for a fixed auxiliary path."""
     if num_nodes <= 0:
         raise ValueError("num_nodes must be positive.")
@@ -32,9 +44,9 @@ def build_padded_expert_path(
     *,
     expert: ScoringExpert,
     scheduler: SchedulerABC,
-    active_mask: torch.Tensor,
-    auxiliary_mask: torch.Tensor,
-    auxiliary_point: torch.Tensor,
+    active_mask: DataMask,
+    auxiliary_mask: DataMask,
+    auxiliary_point: AuxiliaryPoint,
     device: str,
     reverse: bool = True,
 ) -> PaddedProbabilityPath:
@@ -58,7 +70,7 @@ def build_geodiff_fragment_path(
     expert: ScoringExpert,
     scheduler: SchedulerABC,
     masks: CrossDockedMoEMasks,
-    atom_type_and_charge_point: torch.Tensor,
+    atom_type_and_charge_point: FragmentFeatureMatrix,
     device: str,
 ) -> PaddedProbabilityPath:
     """Build the GeoDiff fragment coordinate path with fixed fragment atom types."""
@@ -77,7 +89,7 @@ def build_edm_fragment_path(
     expert: ScoringExpert,
     scheduler: SchedulerABC,
     masks: CrossDockedMoEMasks,
-    padding_point: torch.Tensor,
+    padding_point: FragmentFeatureMatrix,
     device: str,
 ) -> PaddedProbabilityPath:
     """Build the fragment EDM path with a fixed padding point."""
@@ -96,7 +108,7 @@ def build_edm_ligand_path(
     expert: ScoringExpert,
     scheduler: SchedulerABC,
     masks: CrossDockedMoEMasks,
-    padding_point: torch.Tensor,
+    padding_point: LigandFeatureMatrix,
     device: str,
 ) -> PaddedProbabilityPath:
     """Build the whole-ligand EDM path with a fixed padding point."""
@@ -115,7 +127,7 @@ def build_diffsbdd_ligand_path(
     expert: ScoringExpert,
     scheduler: SchedulerABC,
     masks: CrossDockedMoEMasks,
-    padding_point: torch.Tensor,
+    padding_point: LigandFeatureMatrix,
     device: str,
 ) -> PaddedProbabilityPath:
     """Build the DiffSBDD ligand path with a fixed padding point."""
@@ -129,7 +141,7 @@ def build_diffsbdd_ligand_path(
     )
 
 
-def _validate_masks(active_mask: torch.Tensor, auxiliary_mask: torch.Tensor) -> None:
+def _validate_masks(active_mask: DataMask, auxiliary_mask: DataMask) -> None:
     if active_mask.dtype != torch.bool or auxiliary_mask.dtype != torch.bool:
         raise TypeError("active_mask and auxiliary_mask must be boolean tensors.")
     if active_mask.shape != auxiliary_mask.shape:
