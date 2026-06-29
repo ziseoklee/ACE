@@ -82,7 +82,7 @@ class MoEPDESampler:
         """
         sample_size: int = moe_probability_path.sample_size
         generator = torch.Generator(device=device).manual_seed(seed)
-        x0: Float[torch.Tensor, "B D"] = torch.randn(
+        x0: Float[torch.Tensor, "B data"] = torch.randn(
             batch_size,
             sample_size,
             generator=generator,
@@ -97,7 +97,7 @@ class MoEPDESampler:
         num_experts = len(moe_probability_path.q_list)
         logq: Float[torch.Tensor, "B E 1"] = logq.sum(dim=-1, keepdim=True).repeat(1, num_experts).unsqueeze(2)
 
-        logweight: Float[torch.Tensor, " B"] = torch.zeros(batch_size, device=device)
+        logweight: Float[torch.Tensor, "B"] = torch.zeros(batch_size, device=device)  # noqa: F821, UP037
 
         return x0, logq, logweight
 
@@ -236,10 +236,10 @@ class MoEPDESampler:
 
     @staticmethod
     def apply_interleave_fns(
-        x: Float[torch.Tensor, "B D"],
-        choices: Int[np.ndarray, " B"],
+        x: Float[torch.Tensor, "B data"],
+        choices: Int[np.ndarray, "B"],  # noqa: F821
         interleave_fns: list[InterleaveFn] | None,
-    ) -> Float[torch.Tensor, "B D"]:
+    ) -> Float[torch.Tensor, "B data"]:
         if interleave_fns is None:
             return x
 
@@ -249,9 +249,9 @@ class MoEPDESampler:
 
     @staticmethod
     def apply_postprocess_fns(
-        x: Float[torch.Tensor, "B D"],
+        x: Float[torch.Tensor, "B data"],
         postprocess_fns: list[PostprocessFn] | None,
-    ) -> Float[torch.Tensor, "B D"]:
+    ) -> Float[torch.Tensor, "B data"]:
         if postprocess_fns is None:
             return x
 
@@ -261,11 +261,11 @@ class MoEPDESampler:
 
     @staticmethod
     def resample_particles(
-        logits: Float[torch.Tensor, " K"],
+        logits: Float[torch.Tensor, "K"],  # noqa: F821
         num_out_particles: int,  # (B,)
         tol: float = 1e-6,
         stratified: bool = True,
-    ) -> Int[np.ndarray, " B"]:
+    ) -> Int[np.ndarray, "B"]:  # noqa: F821
         """
         Draw one categorical sample per row of `logits` using stratified uniforms.
         - Collapses tiny probs (<= tol) to 0 and renormalizes.

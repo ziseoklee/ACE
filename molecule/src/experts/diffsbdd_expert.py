@@ -32,7 +32,7 @@ class DiffSBDDInferenceContext:
     pocket: dict[str, torch.Tensor]
     pocket_com_before: torch.Tensor
     device: str
-    z: Float[torch.Tensor, "B L*(coords+atom_types)"]
+    z: Float[torch.Tensor, "B data"]
     xh_pocket: torch.Tensor
     data_shape: tuple[int, ...]
 
@@ -114,9 +114,9 @@ class DiffSBDDExpert(MoEExpertABC):
 
     def score(
         self,
-        t: Float[torch.Tensor, " B"],
-        x: Float[torch.Tensor, "B L*(coords+atom_types)"],
-    ) -> Float[torch.Tensor, " B"]:
+        t: Float[torch.Tensor, "B 1"],
+        x: Float[torch.Tensor, "B data"],
+    ) -> Float[torch.Tensor, "B data"]:
         # Implementation for scoring using the DiffSBDD expert
         model = self.model
         lig_mask = self._inference_context.lig_mask
@@ -127,23 +127,15 @@ class DiffSBDDExpert(MoEExpertABC):
         curr_shape = x.shape
 
         x = x.reshape(data_shape)
-        T = model.T
+        num_timesteps = model.T
 
-        i = (T * t).int().clamp(1, T - 1)[0].item()
+        i = (num_timesteps * t).int().clamp(1, num_timesteps - 1)[0].item()
 
-        s_array = torch.full((batch_size, 1), fill_value=i - 1, device=self.device)
-        t_array = s_array + 1
-        s_array = s_array / T
-        t_prev_array = (t_array - 1) / T
-        t_array = t_array / T
+        t_array = torch.full((batch_size, 1), fill_value=i, device=self.device)
+        t_array = t_array / num_timesteps
 
-        gamma_s = model.ddpm.gamma(s_array)
         gamma_t = model.ddpm.gamma(t_array)
-        gamma_t_prev = model.ddpm.gamma(t_prev_array)
         sigma_t = model.ddpm.sigma(gamma_t, target_tensor=x)
-        alpha_t = model.ddpm.alpha(gamma_t, target_tensor=x)
-        alpha_t_prev = model.ddpm.alpha(gamma_t_prev, target_tensor=x)
-        beta_t = (-2 * torch.log(alpha_t / alpha_t_prev)) * T
 
         eps_t_lig, _ = model.ddpm.dynamics(x, xh_pocket, t_array, lig_mask, pocket["mask"])
         score = -eps_t_lig / sigma_t[lig_mask]
@@ -152,10 +144,10 @@ class DiffSBDDExpert(MoEExpertABC):
 
     def interleave(
         self,
-        x: Float[torch.Tensor, "B L*(coords+atom_types)"],
-        choices: Int[np.ndarray, " B"],
+        x: Float[torch.Tensor, "B data"],
+        choices: Int[np.ndarray, "B"],  # noqa: F821
         mask: torch.Tensor,
-    ) -> Float[torch.Tensor, "B L*(coords+atom_types)"]:
+    ) -> Float[torch.Tensor, "B data"]:
         """
         Keep DiffSBDD conditioning in the ligand-centered frame after resampling.
 
@@ -190,7 +182,7 @@ class DiffSBDDExpert(MoEExpertABC):
 
     def decode_mu_xh_given_z0(
         self,
-        z0_lig: Float[torch.Tensor, "B L*(coords+atom_types)"],
+        z0_lig: Float[torch.Tensor, "B data"],
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Decode z0 with the DiffSBDD posterior mean, without final Gaussian sampling."""
         model = self.model
@@ -214,9 +206,9 @@ class DiffSBDDExpert(MoEExpertABC):
 
     def postprocess(
         self,
-        x: Float[torch.Tensor, "B L*(coords+atom_types)"],
+        x: Float[torch.Tensor, "B data"],
         mask: torch.Tensor,
-    ) -> Float[torch.Tensor, "B L*(coords+atom_types)"]:
+    ) -> Float[torch.Tensor, "B data"]:
         """Decode and restore the DiffSBDD portion while preserving the full MoE tensor shape."""
         model = self.model
         lig_mask = self._inference_context.lig_mask

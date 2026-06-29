@@ -27,12 +27,12 @@ logger = logging.getLogger(__name__)
 class EDMInferenceContext:
     model: EnVariationalDiffusion
     batch_size: int
-    node_mask: Float[torch.Tensor, "B L"]
-    edge_mask: Float[torch.Tensor, "B L L"]
+    node_mask: Float[torch.Tensor, "B L 1"]
+    edge_mask: Float[torch.Tensor, "B_L_L 1"]  # flattened from (B, L, L)
     context: None
     max_n_nodes: int
     device: str
-    z: Float[torch.Tensor, "B L*(coords+atom_types)"]
+    z: Float[torch.Tensor, "B data"]
     data_shape: tuple[int, ...]
 
 
@@ -142,9 +142,9 @@ class EDMExpert(MoEExpertABC):
 
     def score(
         self,
-        t: Float[torch.Tensor, " B"],
-        x: Float[torch.Tensor, "B L*(coords+atom_types)"],
-    ) -> Float[torch.Tensor, " B"]:
+        t: Float[torch.Tensor, "B 1"],
+        x: Float[torch.Tensor, "B data"],
+    ) -> Float[torch.Tensor, "B data"]:
         # Implementation for scoring using the EDM expert
         model = self.model
         node_mask = self._inference_context.node_mask
@@ -161,19 +161,11 @@ class EDMExpert(MoEExpertABC):
 
         t = torch.full(size=(1,), fill_value=i, dtype=torch.long, device=self.device)
 
-        s_array = torch.full((batch_size, 1), fill_value=i - 1, device=self.device)
         t_array = torch.full((batch_size, 1), fill_value=i, device=self.device)
-        s_array = s_array / model.T
-        t_prev_array = (t_array - 1) / model.T
         t_array = t_array / model.T
 
-        gamma_s = model.gamma(s_array)
         gamma_t = model.gamma(t_array)
-        gamma_t_prev = model.gamma(t_prev_array)
         sigma_t = model.sigma(gamma_t, target_tensor=x)
-        alpha_t = model.alpha(gamma_t, x)
-        alpha_t_prev = model.alpha(gamma_t_prev, x)
-        beta_t = -2 * (torch.log(alpha_t / alpha_t_prev) * model.T)
 
         # Neural net prediction.
         eps_t = model.phi(x, t_array, node_mask, edge_mask, context)
@@ -189,13 +181,13 @@ class EDMExpert(MoEExpertABC):
         return score.reshape(curr_shape)
 
     def interleave(
-        self, x: Float[torch.Tensor, "B L*(coords+atom_types)"], *args, **kwargs
-    ) -> Float[torch.Tensor, "B L*(coords+atom_types)"]:
+        self, x: Float[torch.Tensor, "B data"], *args, **kwargs
+    ) -> Float[torch.Tensor, "B data"]:
         # Implementation for interleaving data specific to EDM; no-op
         return x
 
     def postprocess(
-        self, x: Float[torch.Tensor, "B L*(coords+atom_types)"], *args, **kwargs
-    ) -> Float[torch.Tensor, "B L*(coords+atom_types)"]:
+        self, x: Float[torch.Tensor, "B data"], *args, **kwargs
+    ) -> Float[torch.Tensor, "B data"]:
         # Implementation for postprocessing results from the EDM expert; no-op
         return x

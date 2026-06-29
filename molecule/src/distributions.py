@@ -100,7 +100,7 @@ class PointMassDistribution(nn.Module):
 
         def score(
             t: Float[torch.Tensor, "B 1"],
-            x: Float[torch.Tensor, "B D"],
+            x: Float[torch.Tensor, "B data"],
             prior: MultivariateGaussian,
             point: torch.Tensor,
         ):

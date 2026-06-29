@@ -17,15 +17,15 @@ CacheKeyType = tuple[int, int, int, int, tuple[int, ...], tuple[int, ...], torch
 
 class ProbabilityPathABC(ABC):
     @abstractmethod
-    def drift_coeff(self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B D"]) -> Float[torch.Tensor, "B D"]:
+    def drift_coeff(self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B data"]) -> Float[torch.Tensor, "B data"]:
         pass
 
     @abstractmethod
-    def v(self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B D"]) -> Float[torch.Tensor, "B D"]:
+    def v(self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B data"]) -> Float[torch.Tensor, "B data"]:
         pass
 
     @abstractmethod
-    def score(self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B D"]) -> Float[torch.Tensor, "B D"]:
+    def score(self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B data"]) -> Float[torch.Tensor, "B data"]:
         pass
 
     @abstractmethod
@@ -51,8 +51,8 @@ class ProbabilityPath(ProbabilityPathABC):
     def drift_coeff(
         self,
         t: Float[torch.Tensor, "B 1"],
-        x: Float[torch.Tensor, "B D"],
-    ) -> Float[torch.Tensor, "B D"]:
+        x: Float[torch.Tensor, "B data"],
+    ) -> Float[torch.Tensor, "B data"]:
         """Drift coefficient of SDE"""
         if not self.reverse:
             return self.scheduler.drift_coeff(t, x)
@@ -63,8 +63,8 @@ class ProbabilityPath(ProbabilityPathABC):
     def v(
         self,
         t: Float[torch.Tensor, "B 1"],
-        x: Float[torch.Tensor, "B D"],
-    ) -> Float[torch.Tensor, "B D"]:
+        x: Float[torch.Tensor, "B data"],
+    ) -> Float[torch.Tensor, "B data"]:
         """Velocity of PF-ODE"""
         if not self.reverse:
             f = self.scheduler.drift_coeff(t, x)
@@ -78,8 +78,8 @@ class ProbabilityPath(ProbabilityPathABC):
     def score(
         self,
         t: Float[torch.Tensor, "B 1"],
-        x: Float[torch.Tensor, "B D"],
-    ) -> Float[torch.Tensor, "B D"]:
+        x: Float[torch.Tensor, "B data"],
+    ) -> Float[torch.Tensor, "B data"]:
         """Score function of SDE"""
         if not self.reverse:
             return self.score_model(t, x)
@@ -119,8 +119,8 @@ class PaddedProbabilityPath(ProbabilityPathABC):
     def drift_coeff(
         self,
         t: Float[torch.Tensor, "B 1"],
-        x: Float[torch.Tensor, "B D"],
-    ) -> Float[torch.Tensor, "B D"]:
+        x: Float[torch.Tensor, "B data"],
+    ) -> Float[torch.Tensor, "B data"]:
         out = torch.zeros(x.shape[0], self.sample_size, device=x.device)
         for i in range(len(self.paths)):
             out[:, self.mask_list[i]] = self.paths[i].drift_coeff(t, x[:, self.mask_list[i]])
@@ -129,8 +129,8 @@ class PaddedProbabilityPath(ProbabilityPathABC):
     def v(
         self,
         t: Float[torch.Tensor, "B 1"],
-        x: Float[torch.Tensor, "B D"],
-    ) -> Float[torch.Tensor, "B D"]:
+        x: Float[torch.Tensor, "B data"],
+    ) -> Float[torch.Tensor, "B data"]:
         out = torch.zeros(x.shape[0], self.sample_size, device=x.device)
         for i in range(len(self.paths)):
             out[:, self.mask_list[i]] = self.paths[i].v(t, x[:, self.mask_list[i]])
@@ -140,8 +140,8 @@ class PaddedProbabilityPath(ProbabilityPathABC):
     def score(
         self,
         t: Float[torch.Tensor, "B 1"],
-        x: Float[torch.Tensor, "B D"],
-    ) -> Float[torch.Tensor, "B D"]:
+        x: Float[torch.Tensor, "B data"],
+    ) -> Float[torch.Tensor, "B data"]:
         out = torch.zeros(x.shape[0], self.sample_size, device=x.device)
         for i in range(len(self.paths)):
             out[:, self.mask_list[i]] = self.paths[i].score(t, x[:, self.mask_list[i]])
@@ -185,7 +185,7 @@ class MoEProbabilityPath(ProbabilityPathABC):
     def _make_cache_key(
         self,
         t: Float[torch.Tensor, "B 1"],
-        x: Float[torch.Tensor, "B D"],
+        x: Float[torch.Tensor, "B data"],
     ) -> CacheKeyType:
         return (
             id(t),
@@ -201,7 +201,7 @@ class MoEProbabilityPath(ProbabilityPathABC):
     def _ensure_cache_context(
         self,
         t: Float[torch.Tensor, "B 1"],
-        x: Float[torch.Tensor, "B D"],
+        x: Float[torch.Tensor, "B data"],
     ) -> None:
         cache_key = self._make_cache_key(t, x)
         if self._cache_key != cache_key:
@@ -211,7 +211,7 @@ class MoEProbabilityPath(ProbabilityPathABC):
     def _gamma(
         self,
         t: Float[torch.Tensor, "B 1"],
-        x: Float[torch.Tensor, "B D"],
+        x: Float[torch.Tensor, "B data"],
     ) -> Float[torch.Tensor, "B E 1"]:
         self._ensure_cache_context(t, x)
         if "gamma" not in self._cache:
@@ -221,8 +221,8 @@ class MoEProbabilityPath(ProbabilityPathABC):
     def _expert_v(
         self,
         t: Float[torch.Tensor, "B 1"],
-        x: Float[torch.Tensor, "B D"],
-    ) -> Float[torch.Tensor, "B E D"]:
+        x: Float[torch.Tensor, "B data"],
+    ) -> Float[torch.Tensor, "B E data"]:
         self._ensure_cache_context(t, x)
         if "expert_v" not in self._cache:
             self._cache["expert_v"] = torch.stack(
@@ -237,8 +237,8 @@ class MoEProbabilityPath(ProbabilityPathABC):
     def _expert_score(
         self,
         t: Float[torch.Tensor, "B 1"],
-        x: Float[torch.Tensor, "B D"],
-    ) -> Float[torch.Tensor, "B E D"]:
+        x: Float[torch.Tensor, "B data"],
+    ) -> Float[torch.Tensor, "B E data"]:
         self._ensure_cache_context(t, x)
         if "expert_score" not in self._cache:
             self._cache["expert_score"] = torch.stack(
@@ -256,8 +256,8 @@ class MoEProbabilityPath(ProbabilityPathABC):
     def drift_coeff(
         self,
         t: Float[torch.Tensor, "B 1"],
-        x: Float[torch.Tensor, "B D"],
-    ) -> Float[torch.Tensor, "B D"]:
+        x: Float[torch.Tensor, "B data"],
+    ) -> Float[torch.Tensor, "B data"]:
         """Drift coefficient of MoE SDE, calculated as weighted mixture of component-wise velocities and scores."""
         self._ensure_cache_context(t, x)
         if "moe_drift" not in self._cache:
@@ -269,8 +269,8 @@ class MoEProbabilityPath(ProbabilityPathABC):
     def v(
         self,
         t: Float[torch.Tensor, "B 1"],
-        x: Float[torch.Tensor, "B D"],
-    ) -> Float[torch.Tensor, "B D"]:
+        x: Float[torch.Tensor, "B data"],
+    ) -> Float[torch.Tensor, "B data"]:
         """Velocity of MoE PF-ODE, calculated as weighted mixture of component-wise velocities."""
         self._ensure_cache_context(t, x)
         if "moe_v" not in self._cache:
@@ -280,8 +280,8 @@ class MoEProbabilityPath(ProbabilityPathABC):
     def score(
         self,
         t: Float[torch.Tensor, "B 1"],
-        x: Float[torch.Tensor, "B D"],
-    ) -> Float[torch.Tensor, "B D"]:
+        x: Float[torch.Tensor, "B data"],
+    ) -> Float[torch.Tensor, "B data"]:
         """Score function of MoE SDE, calculated as weighted mixture of component-wise scores."""
         self._ensure_cache_context(t, x)
         if "moe_score" not in self._cache:
@@ -299,14 +299,14 @@ class MoEProbabilityPath(ProbabilityPathABC):
     def get_dlogq(
         self,
         t: Float[torch.Tensor, "B 1"],
-        x: Float[torch.Tensor, "B D"],
+        x: Float[torch.Tensor, "B data"],
     ):
         """
         Calculate the logq correction term for each expert, which is used for logq correction in drift and resampling.
         """
         # line 8's logq correction term
-        v: Float[torch.Tensor, "B E D"] = self._expert_v(t, x)
-        s: Float[torch.Tensor, "B E D"] = self._expert_score(t, x)
+        v: Float[torch.Tensor, "B E data"] = self._expert_v(t, x)
+        s: Float[torch.Tensor, "B E data"] = self._expert_score(t, x)
 
         x_subset_list = [x[:, mask] for mask in self.mask_list]
         div_s = torch.stack(
@@ -330,16 +330,16 @@ class MoEProbabilityPath(ProbabilityPathABC):
     def get_dlog_weight(
         self,
         t: Float[torch.Tensor, "B 1"],
-        x: Float[torch.Tensor, "B D"],
+        x: Float[torch.Tensor, "B data"],
         use_logq: bool,
         logq_tensor: Float[torch.Tensor, "B E 1"] | None,
-    ) -> Float[torch.Tensor, " B"]:
+    ) -> Float[torch.Tensor, "B"]:  # noqa: F821
         """
         Calculate the time derivative of log weight for each expert, which is used for resampling and logq correction.
         """
         gamma: Float[torch.Tensor, "B E 1"] = self._gamma(t, x)
-        v: Float[torch.Tensor, "B E D"] = self._expert_v(t, x)
-        s: Float[torch.Tensor, "B E D"] = self._expert_score(t, x)
+        v: Float[torch.Tensor, "B E data"] = self._expert_v(t, x)
+        s: Float[torch.Tensor, "B E data"] = self._expert_score(t, x)
         # dlog_weight except for logq correction
         dlog_weight_base: Float[torch.Tensor, "B 1"] = (
             gamma * ((self.v(t, x).unsqueeze(1) - v) * s).sum(dim=2, keepdim=True)
@@ -362,7 +362,7 @@ class MoEProbabilityPath(ProbabilityPathABC):
         return dlog_weight.squeeze(-1)  # (B,)
 
 
-def pad_tensor(x: Float[torch.Tensor, "B D"], pad_size: int, dim: int):
+def pad_tensor(x: Float[torch.Tensor, "B data"], pad_size: int, dim: int):
     padding_shape = list(x.shape)
     padding_shape[dim] = pad_size - x.shape[dim]
     return torch.cat([x, torch.zeros(padding_shape, device=x.device)], dim=dim)

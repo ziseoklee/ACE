@@ -37,7 +37,7 @@ class GeoDiffInferenceContext:
     w_global: float
     clip_local: float | None
     clip: float
-    z: Float[torch.Tensor, "B L*(coords+atom_types)"]
+    z: Float[torch.Tensor, "B data"]
     num_samples: int
     data_shape: tuple[int, ...]
 
@@ -133,9 +133,9 @@ class GeoDiffExpert(MoEExpertABC):
 
     def score(
         self,
-        t: Float[torch.Tensor, " B"],
-        x: Float[torch.Tensor, "B L*(coords+atom_types)"],
-    ) -> Float[torch.Tensor, " B"]:
+        t: Float[torch.Tensor, "B 1"],
+        x: Float[torch.Tensor, "B data"],
+    ) -> Float[torch.Tensor, "B data"]:
         # Implementation for scoring using the GeoDiff expert
         model = self.model
         batch = self._inference_context.batch
@@ -149,7 +149,6 @@ class GeoDiffExpert(MoEExpertABC):
 
         x = x.reshape(data_shape)
         alphas = model.alphas
-        betas = model.betas * 10000
         sigmas = (1.0 - alphas).sqrt() / alphas.sqrt()
 
         num_timesteps = model.num_timesteps
@@ -203,14 +202,14 @@ class GeoDiffExpert(MoEExpertABC):
         return score.reshape(curr_shape)
 
     def interleave(
-        self, x: Float[torch.Tensor, "B L*(coords+atom_types)"], *args, **kwargs
-    ) -> Float[torch.Tensor, "B L*(coords+atom_types)"]:
+        self, x: Float[torch.Tensor, "B data"], *args, **kwargs
+    ) -> Float[torch.Tensor, "B data"]:
         # Implementation for interleaving data specific to GeoDiff; no-op
         return x
 
     def postprocess(
-        self, x: Float[torch.Tensor, "B L*(coords+atom_types)"], *args, **kwargs
-    ) -> Float[torch.Tensor, "B L*(coords+atom_types)"]:
+        self, x: Float[torch.Tensor, "B data"], *args, **kwargs
+    ) -> Float[torch.Tensor, "B data"]:
         # Implementation for postprocessing results from the GeoDiff expert; no-op
         return x
 
@@ -287,9 +286,7 @@ class PackedConformationDatasetFromDataList(ConformationDatasetFromDataList):
         self.new_data = new_data
 
     def __getitem__(self, idx):
-        num_nodes = self.data[idx].num_nodes
         data = Data(**self.data[idx].to_dict())
-        # data.num_nodes = num_nodes
         if self.transform is not None:
             data = self.transform(data)
         return data

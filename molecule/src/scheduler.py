@@ -21,7 +21,9 @@ class SchedulerABC(ABC):
         pass
 
     @abstractmethod
-    def drift_coeff(self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B D"]) -> Float[torch.Tensor, "B D"]:
+    def drift_coeff(
+        self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B data"]
+    ) -> Float[torch.Tensor, "B data"]:
         """VP SDE drift on forward process: dx = -0.5 * beta(t) * x dt + sqrt(beta(t)) dW"""
         pass
 
@@ -142,7 +144,9 @@ class DiffSBDDScheduler(SchedulerABC):
         beta_rate = self.num_sampling_steps * (log_prev - log_curr)
         return beta_rate.clamp_min(0.0)
 
-    def drift_coeff(self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B D"]) -> Float[torch.Tensor, "B D"]:
+    def drift_coeff(
+        self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B data"]
+    ) -> Float[torch.Tensor, "B data"]:
         """VP-SDE drift: dx = -0.5 * beta(t) * x dt + sqrt(beta(t)) dW."""
         return -0.5 * self.beta(t) * x
 
@@ -262,7 +266,9 @@ class EDMScheduler(SchedulerABC):
         beta_rate = self.num_sampling_steps * (log_prev - log_curr)
         return beta_rate.clamp_min(0.0)
 
-    def drift_coeff(self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B D"]) -> Float[torch.Tensor, "B D"]:
+    def drift_coeff(
+        self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B data"]
+    ) -> Float[torch.Tensor, "B data"]:
         """VP-SDE drift: dx = -0.5 * beta(t) * x dt + sqrt(beta(t)) dW."""
         return -0.5 * self.beta(t) * x
 
@@ -313,7 +319,9 @@ class GeoDiffScheduler(SchedulerABC):
     def ddpm_sigma2(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         return 1.0 - self.ddpm_alpha2(t)
 
-    def drift_coeff(self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B D"]) -> Float[torch.Tensor, "B D"]:
+    def drift_coeff(
+        self, t: Float[torch.Tensor, "B 1"], x: Float[torch.Tensor, "B data"]
+    ) -> Float[torch.Tensor, "B data"]:
         """VP SDE drift on forward process: dx = -0.5 * beta(t) * x dt + sqrt(beta(t)) dW"""
         return -0.5 * self.beta(t) * x
 
