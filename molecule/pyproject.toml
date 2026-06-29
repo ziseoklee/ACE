@@ -55,7 +55,10 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.package-dir]
 src = "src"
 configs = "src/configs"
+experts = "src/experts"
+sampling = "src/sampling"
 utils = "src/utils"
+postprocessing = "src/postprocessing"
 pretrained_models = "src/pretrained_models"
 
 [tool.setuptools.packages.find]
@@ -63,7 +66,10 @@ where = [".", "src"]
 include = [
     "src",
     "configs*",
+    "experts*",
+    "sampling*",
     "utils*",
+    "postprocessing*",
     "pretrained_models*",
 ]
 exclude = [

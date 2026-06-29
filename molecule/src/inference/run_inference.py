@@ -19,19 +19,19 @@ from rdkit.Chem.rdchem import Mol
 from configs import config as _config_registry  # Noqa: F401
 from configs.config_sampler import _BaseSamplerConfig
 from configs.config_weight import ACEBumpWeightConfig, _BaseWeightConfig
-from src.experts import DiffSBDDExpert, EDMExpert, GeoDiffExpert
-from src.moe_layout import EDM_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX, CrossDockedMoELayout
-from src.path_factory import (
+from experts import DiffSBDDExpert, EDMExpert, GeoDiffExpert
+from postprocessing import MoleculeBuilder
+from sampling.moe_layout import EDM_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX, CrossDockedMoELayout
+from sampling.path_factory import (
     build_diffsbdd_ligand_path,
     build_edm_fragment_path,
     build_edm_ligand_path,
     build_geodiff_fragment_path,
     make_zero_auxiliary_point,
 )
-from src.postprocessing import MoleculeBuilder
-from src.probability_path import MoEProbabilityPath
-from src.sampler import MoEPDESampler
-from src.scheduler import DiffSBDDScheduler, EDMScheduler, GeoDiffScheduler
+from sampling.probability_path import MoEProbabilityPath
+from sampling.sampler import MoEPDESampler
+from sampling.scheduler import DiffSBDDScheduler, EDMScheduler, GeoDiffScheduler
 from utils.inference_utils import replace_mol_topology_by_fragment
 from utils.postprocess_valfix_utils import postprocess_valfix
 

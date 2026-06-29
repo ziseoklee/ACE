@@ -10,7 +10,7 @@ from torch.distributions import Normal
 from tqdm import tqdm
 
 from configs.config_sampler import _BaseSamplerConfig
-from src.probability_path import MoEProbabilityPath
+from src.sampling.probability_path import MoEProbabilityPath
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +190,7 @@ class MoEPDESampler:
                 moe_sigma = moe_probability_path.sigma(t)
 
                 # Algorithm L7: Propagate particles with Euler-Maruyama
-                dW = torch.randn_like(x) * np.sqrt(dt)
+                dW = torch.randn_like(x) * np.sqrt(dt)  # noqa: N806
                 x_next = x + moe_mu * dt + moe_sigma * dW
 
                 # Algorithm L8: Update logq tensor if needed

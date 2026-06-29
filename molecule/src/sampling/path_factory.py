@@ -4,9 +4,9 @@ import torch
 from jaxtyping import Bool, Float
 
 from src.distributions import PointMassDistribution
-from src.moe_layout import CrossDockedMoEMasks
-from src.probability_path import PaddedProbabilityPath, ProbabilityPath
-from src.scheduler import SchedulerABC
+from src.sampling.moe_layout import CrossDockedMoEMasks
+from src.sampling.probability_path import PaddedProbabilityPath, ProbabilityPath
+from src.sampling.scheduler import SchedulerABC
 
 DataMask = Bool[torch.Tensor, "data"]  # noqa: F821
 DataVector = Float[torch.Tensor, "data"]  # noqa: F821
