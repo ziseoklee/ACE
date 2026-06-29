@@ -19,17 +19,10 @@ from torch.distributions import Normal
 from configs import config as _config_registry  # Noqa: F401
 from configs.config_sampler import _BaseSamplerConfig
 from configs.config_weight import ACEBumpWeightConfig, _BaseWeightConfig
-from pretrained_models.export_diffsbdd import interleave_fn as interleave_fn_diffsbdd
-from pretrained_models.export_diffsbdd import postprocess_fn as postprocess_fn_diffsbdd
-from pretrained_models.export_diffsbdd import prepare_data as prepare_data_diffsbdd
-from pretrained_models.export_diffsbdd import score_function as score_function_diffsbdd
 from pretrained_models.export_edm import encode_xh
-from pretrained_models.export_edm import prepare_data as prepare_data_edm
-from pretrained_models.export_edm import score_function as score_function_edm
-from pretrained_models.export_geodiff import prepare_data as prepare_data_geodiff
-from pretrained_models.export_geodiff import score_function as score_function_geodiff
 from src.distributions import FixedPointDistribution
 from src.experts import DiffSBDDExpert, EDMExpert, GeoDiffExpert
+from src.postprocessing import MoleculeBuilder
 from src.probability_path import MoEProbabilityPath, PaddedProbabilityPath, ProbabilityPath
 from src.sampler import MoEPDESampler
 from src.scheduler import DiffSBDDScheduler, EDMScheduler, GeoDiffScheduler
@@ -163,11 +156,6 @@ def run_single_task_sampling(
     pdb_path: Path,
     fragment: Mol,
     ref_ligand: Mol,
-    sbdd,
-    edm,
-    geodiff,
-    args_edm,
-    args_geodiff,
     sampler_cfg: _BaseSamplerConfig,
     exponent_list: list[Callable[[torch.Tensor], torch.Tensor]],
     save_dir: Path,
@@ -179,6 +167,16 @@ def run_single_task_sampling(
     scheduler_geodiff = GeoDiffScheduler()
     scheduler_edm = EDMScheduler()
     scheduler_sbdd = DiffSBDDScheduler()
+
+    ### Experts
+    edm_expert = EDMExpert.from_pretrained(device=device)
+    edm_expert_2 = EDMExpert.from_pretrained(device=device)
+    edm = edm_expert.model
+    args_edm = edm_expert.model_config
+    geodiff_expert = GeoDiffExpert.from_pretrained(device=device)
+    diffsbdd_expert = DiffSBDDExpert.from_pretrained(device=device)
+
+    seed_everything(sampler_cfg.seed)
 
     num_ligand_atoms = ref_ligand.GetNumAtoms()  # whole molecule size
     num_fragment_atoms = fragment.GetNumAtoms()  # fragment size
@@ -197,8 +195,8 @@ def run_single_task_sampling(
     ) = make_data_component_mask_extend(num_fragment_atoms, num_ligand_atoms, type="sbdd", device=device)
 
     # [CONF] GeoDiff score, velocity, probability path p(Msc |Tsc)
-    prepared_data_geodiff = prepare_data_geodiff(args_geodiff, geodiff, fragment, num_samples=batch_size, device=device)
-    score_fn = functools.partial(score_function_geodiff, prepared_data=prepared_data_geodiff)
+    geodiff_expert.prepare_data(batch_size, fragment)
+    score_fn = geodiff_expert.score
     q_geodiff = ProbabilityPath(scheduler_geodiff, score_fn)
 
     _, _h = encode_xh(args_edm, edm, fragment)
@@ -216,8 +214,8 @@ def run_single_task_sampling(
     # print("g_geodiff_pad.reverse:", q_geodiff_pad.reverse)  # True
 
     # [DN] EDM score, velocity, probability path for fragment part p(Msc)
-    prepared_data_edm = prepare_data_edm(edm, batch_size, num_fragment_atoms, device=device)
-    score_fn_edm = functools.partial(score_function_edm, prepared_data=prepared_data_edm)
+    edm_expert.prepare_data(batch_size, num_fragment_atoms)
+    score_fn_edm = edm_expert.score
     q_edm = ProbabilityPath(scheduler_edm, score_fn_edm)
 
     h = torch.zeros(num_fragment_atoms, 6).to(device=device)
@@ -230,8 +228,8 @@ def run_single_task_sampling(
     # print("g_edm_pad.reverse:", q_edm_pad.reverse)  # True
 
     # [DN] EDM score, velocity, probability path for whole molecule (fragment + complement) p(M)
-    prepared_data_edm2 = prepare_data_edm(edm, batch_size, num_ligand_atoms, device=device)
-    score_fn_edm2 = functools.partial(score_function_edm, prepared_data=prepared_data_edm2)
+    edm_expert_2.prepare_data(batch_size, num_ligand_atoms)
+    score_fn_edm2 = edm_expert_2.score
     q_edm2 = ProbabilityPath(scheduler_edm, score_fn_edm2)
 
     h2 = torch.zeros(num_ligand_atoms, 6).to(device=device)
@@ -244,8 +242,8 @@ def run_single_task_sampling(
     # print("g_edm_pad2.reverse:", q_edm_pad2.reverse)  # True
 
     # [SBDD] DiffSBDD score, velocity,probability path p(M|P)
-    prepared_data_sbdd = prepare_data_diffsbdd(sbdd, pdb_path, ref_ligand, batch_size, num_ligand_atoms, device=device)
-    score_fn_sbdd = functools.partial(score_function_diffsbdd, prepared_data=prepared_data_sbdd)
+    diffsbdd_expert.prepare_data(batch_size, num_ligand_atoms, pdb_path, ref_ligand)
+    score_fn_sbdd = diffsbdd_expert.score
     q_sbdd = ProbabilityPath(scheduler_sbdd, score_fn_sbdd)
 
     h = torch.zeros(num_ligand_atoms, 2).to(device=device)
@@ -255,7 +253,7 @@ def run_single_task_sampling(
 
     q_sbdd_pad = PaddedProbabilityPath([q_sbdd, q_h], [mask_sbdd, mask_sbdd_hpad])
 
-    prior_sbdd = prepared_data_sbdd["z"]
+    prior_sbdd = diffsbdd_expert._inference_context.z
     prior = torch.randn(batch_size, *mask.shape).to(prior_sbdd.device)
     prior[:, mask_sbdd] = prior_sbdd
     # print("q_sbdd_pad dim:", q_sbdd_pad.dim)  #: should be 15 * N (whole molecule size)
@@ -266,7 +264,7 @@ def run_single_task_sampling(
     log_probs = standard_normal_dist.log_prob(prior)
     log_probs = log_probs.sum(dim=-1).unsqueeze(1).repeat(1, 4).unsqueeze(2)
 
-    interleave_fn_sbdd = functools.partial(interleave_fn_diffsbdd, prepared_data=prepared_data_sbdd, mask=mask_sbdd)
+    interleave_fn_sbdd = functools.partial(diffsbdd_expert.interleave, mask=mask_sbdd)
 
     moe_probability_path = MoEProbabilityPath(
         scheduler_geodiff,  # for global noise schedule
@@ -294,11 +292,21 @@ def run_single_task_sampling(
         for step, choice in enumerate(choices):
             f_choices.write(f"Step {step}: {choice}\n")
 
-    samples = postprocess_fn_diffsbdd(
+    samples = diffsbdd_expert.postprocess(
         samples.to(device=device),
-        prepared_data=prepared_data_sbdd,
         mask=mask_sbdd,
-        frag_atom_type=h_int,
+    )
+    xh_lig = samples[:, mask_sbdd].reshape(batch_size, num_ligand_atoms, -1)
+    samples = MoleculeBuilder.build_batch(
+        xh=xh_lig,
+        dataset_info=diffsbdd_expert.model.dataset_info,
+        fragment_atom_types=h_int,
+        x_dims=diffsbdd_expert.model.x_dims,
+        add_coords=True,
+        add_hydrogens=False,
+        sanitize=False,
+        relax_iter=0,
+        largest_frag=False,
     )
 
     replaced_samples = []
@@ -323,18 +331,6 @@ def run_inference(cfg: DictConfig, output_dir: Path) -> None:
     exponent_list = build_exponent_list(weight_cfg)
     log_exponent_list(exponent_list)
 
-    # Load pre-trained models and prepare probability paths
-    device = sampler_cfg.device
-    sbdd = DiffSBDDExpert.from_pretrained(device=device).model
-
-    _edm_expert = EDMExpert.from_pretrained(device=device)
-    edm = _edm_expert.model
-    args_edm = _edm_expert.model_config
-
-    _geodiff_expert = GeoDiffExpert.from_pretrained(device=device)
-    geodiff = _geodiff_expert.model
-    args_geodiff = _geodiff_expert.model_config
-
     # Load data
     protein_pocket_pdb_path = Path(cfg.data.protein_pocket_pdb_path)
     fragment_sdf_path = Path(cfg.data.fragment_sdf_path)
@@ -356,18 +352,12 @@ def run_inference(cfg: DictConfig, output_dir: Path) -> None:
 
     # Run inference with sampler
     logger.info(
-        f"Running inference with sampler {sampler_cfg.name} and weight {weight_cfg.name} on device {device}. Output will be saved to {output_dir}"
+        f"Running inference with sampler {sampler_cfg.name} and weight {weight_cfg.name} on device {sampler_cfg.device}. Output will be saved to {output_dir}"
     )
-    seed_everything(sampler_cfg.seed)
     original_samples, replaced_samples = run_single_task_sampling(
         pdb_path=protein_pocket_pdb_path,
         fragment=fragment,
         ref_ligand=ligand,
-        sbdd=sbdd,
-        edm=edm,
-        geodiff=geodiff,
-        args_edm=args_edm,
-        args_geodiff=args_geodiff,
         sampler_cfg=sampler_cfg,
         exponent_list=exponent_list,
         save_dir=output_dir,
