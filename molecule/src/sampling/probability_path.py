@@ -5,7 +5,7 @@ from collections.abc import Callable
 import torch
 from jaxtyping import Bool, Float
 
-from src.sampling.scheduler import SchedulerABC
+from sampling.scheduler import SchedulerABC
 
 logger = logging.getLogger(__name__)
 

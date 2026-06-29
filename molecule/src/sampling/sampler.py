@@ -10,7 +10,7 @@ from torch.distributions import Normal
 from tqdm import tqdm
 
 from configs.config_sampler import _BaseSamplerConfig
-from src.sampling.probability_path import MoEProbabilityPath
+from sampling.probability_path import MoEProbabilityPath
 
 logger = logging.getLogger(__name__)
 

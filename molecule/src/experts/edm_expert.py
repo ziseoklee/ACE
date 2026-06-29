@@ -11,9 +11,9 @@ from e3_diffusion_for_molecules.qm9.models import get_model
 from jaxtyping import Float
 from rdkit.Chem.rdchem import Mol
 
-from src.experts import PRETRAINED_MODEL_DIR
-from src.experts.base_expert import MoEExpertABC
-from src.utils.logging_utils import redirect_output_to_logger
+from experts import PRETRAINED_MODEL_DIR
+from experts.base_expert import MoEExpertABC
+from utils.logging_utils import redirect_output_to_logger
 
 EDM_SOURCE_DIR = PRETRAINED_MODEL_DIR / "e3_diffusion_for_molecules"
 EDM_CKPT_PATH = EDM_SOURCE_DIR / "outputs" / "edm_qm9" / "generative_model_ema.npy"

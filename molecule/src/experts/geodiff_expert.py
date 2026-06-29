@@ -18,8 +18,8 @@ from torch import nn
 from torch_geometric.data import Data, Dataset
 from torch_geometric.transforms import Compose
 
-from src.experts import PRETRAINED_MODEL_DIR
-from src.experts.base_expert import MoEExpertABC
+from experts import PRETRAINED_MODEL_DIR
+from experts.base_expert import MoEExpertABC
 
 GEODIFF_SOURCE_DIR = PRETRAINED_MODEL_DIR / "GeoDiff"
 GEODIFF_CKPT_PATH = GEODIFF_SOURCE_DIR / "log" / "model" / "checkpoints" / "qm9_default.pt"

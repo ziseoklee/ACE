@@ -11,9 +11,9 @@ from jaxtyping import Float, Int
 from rdkit import Chem
 from torch_scatter import scatter_add, scatter_mean
 
-from src.experts import PRETRAINED_MODEL_DIR
-from src.experts.base_expert import MoEExpertABC
-from src.utils.logging_utils import redirect_output_to_logger
+from experts import PRETRAINED_MODEL_DIR
+from experts.base_expert import MoEExpertABC
+from utils.logging_utils import redirect_output_to_logger
 
 DIFFSBDD_SOURCE_DIR = PRETRAINED_MODEL_DIR / "DiffSBDD"
 DIFFSBDD_CKPT_PATH = DIFFSBDD_SOURCE_DIR / "checkpoints" / "crossdocked_fullatom_cond.ckpt"
