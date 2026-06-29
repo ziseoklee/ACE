@@ -201,15 +201,11 @@ class GeoDiffExpert(MoEExpertABC):
         # print(f'centeralized score_geo')
         return score.reshape(curr_shape)
 
-    def interleave(
-        self, x: Float[torch.Tensor, "B data"], *args, **kwargs
-    ) -> Float[torch.Tensor, "B data"]:
+    def interleave(self, x: Float[torch.Tensor, "B data"], *args, **kwargs) -> Float[torch.Tensor, "B data"]:
         # Implementation for interleaving data specific to GeoDiff; no-op
         return x
 
-    def postprocess(
-        self, x: Float[torch.Tensor, "B data"], *args, **kwargs
-    ) -> Float[torch.Tensor, "B data"]:
+    def postprocess(self, x: Float[torch.Tensor, "B data"], *args, **kwargs) -> Float[torch.Tensor, "B data"]:
         # Implementation for postprocessing results from the GeoDiff expert; no-op
         return x
 

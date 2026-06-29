@@ -43,9 +43,7 @@ class MoEExpertABC(ABC):
         ...
 
     @abstractmethod
-    def interleave(
-        self, x: Float[torch.Tensor, "B data"], *args, **kwargs
-    ) -> Float[torch.Tensor, "B data"]:
+    def interleave(self, x: Float[torch.Tensor, "B data"], *args, **kwargs) -> Float[torch.Tensor, "B data"]:
         """
         Interleave function that being applied at each denoising step to ensure the
         correct correspondence between ligand and pocket atoms.
@@ -53,9 +51,7 @@ class MoEExpertABC(ABC):
         ...
 
     @abstractmethod
-    def postprocess(
-        self, x: Float[torch.Tensor, "B data"], *args, **kwargs
-    ) -> Float[torch.Tensor, "B data"]:
+    def postprocess(self, x: Float[torch.Tensor, "B data"], *args, **kwargs) -> Float[torch.Tensor, "B data"]:
         """
         Postprocess function that is applied after the denoising process to ensure the
         correct correspondence between ligand and pocket atoms.

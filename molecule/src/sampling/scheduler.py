@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 import torch
-import torch.nn.functional as torch_functional
+import torch.nn.functional as F  # noqa: N812
 from jaxtyping import Float, Int
 
 
@@ -311,7 +311,7 @@ class GeoDiffScheduler(SchedulerABC):
 
     def log_mean_coeff(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         # log alpha(t) = -1/2 [ beta_delta * (softplus(t) - log 2) + beta_start * t ]
-        return -0.5 * (self.beta_delta / 12.0 * torch_functional.softplus((t - 0.5) * 12.0) + self.beta_start * t)
+        return -0.5 * (self.beta_delta / 12.0 * F.softplus((t - 0.5) * 12.0) + self.beta_start * t)
 
     def ddpm_alpha2(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         return torch.exp(2.0 * self.log_mean_coeff(t))
