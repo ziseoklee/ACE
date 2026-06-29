@@ -98,8 +98,8 @@ class MoEPDESampler:
             generator=generator,
             device=device,
         ).to(device)
-        # !WARNING!: we assume the 3-rd expert is the DiffSBDD expert.
-        mask_sbdd = moe_probability_path.q_list[2].mask_list[0]
+        # !WARNING!: we assume the 4th expert is the DiffSBDD expert.
+        mask_sbdd = moe_probability_path.q_list[3].mask_list[0]
         x0[..., mask_sbdd] = prior_sbdd
 
         standard_normal_dist = Normal(loc=0.0, scale=1.0)

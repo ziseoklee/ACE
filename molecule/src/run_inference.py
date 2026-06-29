@@ -51,27 +51,28 @@ def seed_everything(seed):
 
 
 def build_exponent_list(weight_cfg: _BaseWeightConfig) -> list[ExponentFunctionType]:
+    # Expert order: gamma_1=edm_fragment, gamma_2=edm_ligand, gamma_3=geodiff, gamma_4=diffsbdd.
     # NOTE: For ACEBumpWeightConfig, the bump function is only applied to gamma_4.
     if isinstance(weight_cfg, ACEBumpWeightConfig):
         omega = weight_cfg.omega
         return [
-            lambda t: torch.zeros_like(t) + omega,  # gamma_3
             lambda t: torch.zeros_like(t) - omega,  # gamma_1
-            lambda t: torch.zeros_like(t) + weight_cfg.weight_function(t),  # gamma_4
             lambda t: torch.zeros_like(t) - (omega - 1),  # gamma_2
+            lambda t: torch.zeros_like(t) + omega,  # gamma_3
+            lambda t: torch.zeros_like(t) + weight_cfg.weight_function(t),  # gamma_4
         ]
 
     weight_fn = weight_cfg.weight_function
     return [
-        lambda t: torch.zeros_like(t) + weight_fn(t),  # gamma_3
         lambda t: torch.zeros_like(t) - weight_fn(t),  # gamma_1
-        lambda t: torch.zeros_like(t) + weight_fn(t),  # gamma_4
         lambda t: torch.zeros_like(t) - (weight_fn(t) - 1),  # gamma_2
+        lambda t: torch.zeros_like(t) + weight_fn(t),  # gamma_3
+        lambda t: torch.zeros_like(t) + weight_fn(t),  # gamma_4
     ]
 
 
 def log_exponent_list(exponent_list: list[ExponentFunctionType]) -> None:
-    _exponent_ids = ["gamma_3", "gamma_1", "gamma_4", "gamma_2"]
+    _exponent_ids = ["gamma_1", "gamma_2", "gamma_3", "gamma_4"]
     logger.info("Using exponent functions:")
     logger.info("-" * 50)
     _exponent_and_id_sorted = sorted(zip(exponent_list, _exponent_ids), key=lambda x: x[1])
@@ -95,7 +96,6 @@ def run_single_task_sampling(
     device = sampler_cfg.device
     batch_size = sampler_cfg.batch_size
 
-    ### GeoDiff Probability Path
     logger.info("Loading schedulers...")
     scheduler_geodiff = GeoDiffScheduler()
     scheduler_edm = EDMScheduler()
@@ -121,7 +121,29 @@ def run_single_task_sampling(
         device=device,
     ).masks()
 
-    # [CONF] GeoDiff score, velocity, probability path p(Msc |Tsc)
+    # 1. [DN] EDM score, velocity, probability path for fragment part p(Msc)
+    logger.info("  Building EDM probability path for fragment part generation...")
+    edm_expert_fragment.prepare_data(batch_size, num_fragment_atoms)
+    q_edm_fragment_pad = build_edm_fragment_path(
+        expert=edm_expert_fragment,
+        scheduler=scheduler_edm,
+        masks=masks,
+        padding_point=make_zero_auxiliary_point(num_fragment_atoms, masks.edm_fragment_padding, device=device),
+        device=device,
+    )
+
+    # 2. [DN] EDM score, velocity, probability path for whole molecule (fragment + complement) p(M)
+    logger.info("  Building EDM probability path for whole molecule generation...")
+    edm_expert_ligand.prepare_data(batch_size, num_ligand_atoms)
+    q_edm_ligand_pad = build_edm_ligand_path(
+        expert=edm_expert_ligand,
+        scheduler=scheduler_edm,
+        masks=masks,
+        padding_point=make_zero_auxiliary_point(num_ligand_atoms, masks.edm_ligand_padding, device=device),
+        device=device,
+    )
+
+    # 3. [CONF] GeoDiff score, velocity, probability path p(Msc |Tsc)
     logger.info("  Building GeoDiff probability path for fragment part conformer generation...")
     geodiff_expert.prepare_data(batch_size, fragment)
 
@@ -143,29 +165,7 @@ def run_single_task_sampling(
         device=device,
     )
 
-    # [DN] EDM score, velocity, probability path for fragment part p(Msc)
-    logger.info("  Building EDM probability path for fragment part generation...")
-    edm_expert_fragment.prepare_data(batch_size, num_fragment_atoms)
-    q_edm_fragment_pad = build_edm_fragment_path(
-        expert=edm_expert_fragment,
-        scheduler=scheduler_edm,
-        masks=masks,
-        padding_point=make_zero_auxiliary_point(num_fragment_atoms, masks.edm_fragment_padding, device=device),
-        device=device,
-    )
-
-    # [DN] EDM score, velocity, probability path for whole molecule (fragment + complement) p(M)
-    logger.info("  Building EDM probability path for whole molecule generation...")
-    edm_expert_ligand.prepare_data(batch_size, num_ligand_atoms)
-    q_edm_ligand_pad = build_edm_ligand_path(
-        expert=edm_expert_ligand,
-        scheduler=scheduler_edm,
-        masks=masks,
-        padding_point=make_zero_auxiliary_point(num_ligand_atoms, masks.edm_ligand_padding, device=device),
-        device=device,
-    )
-
-    # [SBDD] DiffSBDD score, velocity,probability path p(M|P)
+    # 4. [SBDD] DiffSBDD score, velocity, probability path p(M|P)
     logger.info("  Building DiffSBDD probability path for pocket conditioned whole molecule generation...")
     diffsbdd_expert.prepare_data(batch_size, num_ligand_atoms, pdb_path, ref_ligand)
     q_sbdd_pad = build_diffsbdd_ligand_path(
@@ -179,11 +179,11 @@ def run_single_task_sampling(
     logger.info("  Build MoE probability path for multi-expert sampling...")
     moe_probability_path = MoEProbabilityPath(
         scheduler=scheduler_geodiff,  # for global noise schedule
-        q_list=[q_geodiff_pad, q_edm_fragment_pad, q_sbdd_pad, q_edm_ligand_pad],
+        q_list=[q_edm_fragment_pad, q_edm_ligand_pad, q_geodiff_pad, q_sbdd_pad],
         mask_list=[
             masks.fragment_state_in_ligand,
-            masks.fragment_state_in_ligand,
             masks.ligand_state,
+            masks.fragment_state_in_ligand,
             masks.ligand_state,
         ],
         exponent_list=exponent_list,
@@ -191,21 +191,22 @@ def run_single_task_sampling(
     )
 
     ### Run MoE-PDE sampling
+    logger.info("Running MoE-PDE sampling...")
     prior_sbdd = diffsbdd_expert._inference_context.z
     prior = torch.randn(batch_size, masks.sample_size).to(prior_sbdd.device)
     prior[:, masks.diffsbdd_ligand_xh] = prior_sbdd
 
     interleave_fns = [
-        geodiff_expert.interleave,
         edm_expert_fragment.interleave,
-        functools.partial(diffsbdd_expert.interleave, mask=masks.diffsbdd_ligand_xh),
         edm_expert_ligand.interleave,
+        geodiff_expert.interleave,
+        functools.partial(diffsbdd_expert.interleave, mask=masks.diffsbdd_ligand_xh),
     ]
     postprocess_fns = [
-        geodiff_expert.postprocess,
         edm_expert_fragment.postprocess,
-        functools.partial(diffsbdd_expert.postprocess, mask=masks.diffsbdd_ligand_xh),
         edm_expert_ligand.postprocess,
+        geodiff_expert.postprocess,
+        functools.partial(diffsbdd_expert.postprocess, mask=masks.diffsbdd_ligand_xh),
     ]
 
     with torch.no_grad():
