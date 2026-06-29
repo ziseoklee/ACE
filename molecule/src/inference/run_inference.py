@@ -95,11 +95,13 @@ def run_single_task_sampling(
     batch_size = sampler_cfg.batch_size
 
     ### GeoDiff Probability Path
+    logger.info("Loading schedulers...")
     scheduler_geodiff = GeoDiffScheduler()
     scheduler_edm = EDMScheduler()
     scheduler_sbdd = DiffSBDDScheduler()
 
     ### Experts
+    logger.info("Loading experts...")
     edm_expert_fragment = EDMExpert.from_pretrained(device=device)
     edm_expert_ligand = EDMExpert.from_pretrained(device=device)
     geodiff_expert = GeoDiffExpert.from_pretrained(device=device)
@@ -107,6 +109,8 @@ def run_single_task_sampling(
 
     seed_everything(sampler_cfg.seed)
 
+    ### Prepare data and build probability paths
+    logger.info("Preparing data and building probability paths...")
     num_ligand_atoms = ref_ligand.GetNumAtoms()  # whole molecule size
     num_fragment_atoms = fragment.GetNumAtoms()  # fragment size
     edm2sbdd_atoms = EDM_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX
@@ -117,6 +121,7 @@ def run_single_task_sampling(
     ).masks()
 
     # [CONF] GeoDiff score, velocity, probability path p(Msc |Tsc)
+    logger.info("  Building GeoDiff probability path for fragment part conformer generation...")
     geodiff_expert.prepare_data(batch_size, fragment)
 
     _, _h = edm_expert_fragment.encode_xh(fragment)
@@ -138,6 +143,7 @@ def run_single_task_sampling(
     )
 
     # [DN] EDM score, velocity, probability path for fragment part p(Msc)
+    logger.info("  Building EDM probability path for fragment part generation...")
     edm_expert_fragment.prepare_data(batch_size, num_fragment_atoms)
     q_edm_fragment_pad = build_edm_fragment_path(
         expert=edm_expert_fragment,
@@ -148,6 +154,7 @@ def run_single_task_sampling(
     )
 
     # [DN] EDM score, velocity, probability path for whole molecule (fragment + complement) p(M)
+    logger.info("  Building EDM probability path for whole molecule generation...")
     edm_expert_ligand.prepare_data(batch_size, num_ligand_atoms)
     q_edm_ligand_pad = build_edm_ligand_path(
         expert=edm_expert_ligand,
@@ -158,6 +165,7 @@ def run_single_task_sampling(
     )
 
     # [SBDD] DiffSBDD score, velocity,probability path p(M|P)
+    logger.info("  Building DiffSBDD probability path for pocket conditioned whole molecule generation...")
     diffsbdd_expert.prepare_data(batch_size, num_ligand_atoms, pdb_path, ref_ligand)
     q_sbdd_pad = build_diffsbdd_ligand_path(
         expert=diffsbdd_expert,
