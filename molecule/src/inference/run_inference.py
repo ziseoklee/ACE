@@ -20,17 +20,17 @@ from configs import config as _config_registry  # Noqa: F401
 from configs.config_sampler import _BaseSamplerConfig
 from configs.config_weight import ACEBumpWeightConfig, _BaseWeightConfig
 from pretrained_models.export_edm import encode_xh
-from src.distributions import FixedPointDistribution
 from src.experts import DiffSBDDExpert, EDMExpert, GeoDiffExpert
-from src.moe_layout import (
-    _DIFFSBDD_PADDING_COLUMNS,
-    _EDM_PADDING_COLUMNS,
-    _GEODIFF_PADDING_COLUMNS,
-    EDM_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX,
-    CrossDockedMoELayout,
+from src.moe_layout import EDM_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX, CrossDockedMoELayout
+from src.path_factory import (
+    build_diffsbdd_ligand_path,
+    build_edm_fragment_path,
+    build_edm_ligand_path,
+    build_geodiff_fragment_path,
+    make_zero_auxiliary_point,
 )
 from src.postprocessing import MoleculeBuilder
-from src.probability_path import MoEProbabilityPath, PaddedProbabilityPath, ProbabilityPath
+from src.probability_path import MoEProbabilityPath
 from src.sampler import MoEPDESampler
 from src.scheduler import DiffSBDDScheduler, EDMScheduler, GeoDiffScheduler
 from utils.inference_utils import replace_mol_topology_by_fragment
@@ -121,63 +121,54 @@ def run_single_task_sampling(
 
     # [CONF] GeoDiff score, velocity, probability path p(Msc |Tsc)
     geodiff_expert.prepare_data(batch_size, fragment)
-    score_fn_geodiff = geodiff_expert.score
-    q_geodiff = ProbabilityPath(scheduler_geodiff, score_fn_geodiff)
 
     _, _h = encode_xh(args_edm, edm, fragment)
     h_int = _h[:, :-1].argmax(dim=-1)
     h_int = torch.tensor([edm2sbdd_atoms[v.item()] for v in h_int]).to(device)
 
-    h = torch.zeros(num_fragment_atoms, len(_GEODIFF_PADDING_COLUMNS)).to(device=device)
-    h[:, list(edm2sbdd_atoms.values()) + [-1]] = _h.to(device=device)
-    h_dist = FixedPointDistribution(h.flatten(), device=device)
-    h_score = h_dist.export_score_function(scheduler_geodiff)
-    q_h = ProbabilityPath(scheduler_geodiff, h_score)
-
-    q_geodiff_pad = PaddedProbabilityPath(
-        [q_geodiff, q_h],
-        [masks.geodiff_fragment_coords, masks.geodiff_fragment_atom_types_and_charge],
+    geodiff_atom_type_point = make_zero_auxiliary_point(
+        num_fragment_atoms,
+        masks.geodiff_fragment_atom_types_and_charge,
+        device=device,
+    )
+    geodiff_atom_type_point[:, list(edm2sbdd_atoms.values()) + [-1]] = _h.to(device=device)
+    q_geodiff_pad = build_geodiff_fragment_path(
+        expert=geodiff_expert,
+        scheduler=scheduler_geodiff,
+        masks=masks,
+        atom_type_and_charge_point=geodiff_atom_type_point,
+        device=device,
     )
 
     # [DN] EDM score, velocity, probability path for fragment part p(Msc)
     edm_expert_fragment.prepare_data(batch_size, num_fragment_atoms)
-    score_fn_edm_fragment = edm_expert_fragment.score
-    q_edm_fragment = ProbabilityPath(scheduler_edm, score_fn_edm_fragment)
-
-    h = torch.zeros(num_fragment_atoms, len(_EDM_PADDING_COLUMNS)).to(device=device)
-    h_dist = FixedPointDistribution(h.flatten(), device=device)
-    h_score = h_dist.export_score_function(scheduler_edm)
-    q_h_fragment = ProbabilityPath(scheduler_edm, h_score)
-
-    q_edm_fragment_pad = PaddedProbabilityPath(
-        [q_edm_fragment, q_h_fragment], [masks.edm_fragment_xh, masks.edm_fragment_padding]
+    q_edm_fragment_pad = build_edm_fragment_path(
+        expert=edm_expert_fragment,
+        scheduler=scheduler_edm,
+        masks=masks,
+        padding_point=make_zero_auxiliary_point(num_fragment_atoms, masks.edm_fragment_padding, device=device),
+        device=device,
     )
 
     # [DN] EDM score, velocity, probability path for whole molecule (fragment + complement) p(M)
     edm_expert_ligand.prepare_data(batch_size, num_ligand_atoms)
-    score_fn_edm_ligand = edm_expert_ligand.score
-    q_edm_ligand = ProbabilityPath(scheduler_edm, score_fn_edm_ligand)
-
-    h2 = torch.zeros(num_ligand_atoms, len(_EDM_PADDING_COLUMNS)).to(device=device)
-    h2_dist = FixedPointDistribution(h2.flatten(), device=device)
-    h2_score = h2_dist.export_score_function(scheduler_edm)
-    q_h_ligand = ProbabilityPath(scheduler_edm, h2_score)
-
-    q_edm_ligand_pad = PaddedProbabilityPath(
-        [q_edm_ligand, q_h_ligand], [masks.edm_ligand_xh, masks.edm_ligand_padding]
+    q_edm_ligand_pad = build_edm_ligand_path(
+        expert=edm_expert_ligand,
+        scheduler=scheduler_edm,
+        masks=masks,
+        padding_point=make_zero_auxiliary_point(num_ligand_atoms, masks.edm_ligand_padding, device=device),
+        device=device,
     )
 
     # [SBDD] DiffSBDD score, velocity,probability path p(M|P)
     diffsbdd_expert.prepare_data(batch_size, num_ligand_atoms, pdb_path, ref_ligand)
-    score_fn_sbdd = diffsbdd_expert.score
-    q_sbdd = ProbabilityPath(scheduler_sbdd, score_fn_sbdd)
-
-    h = torch.zeros(num_ligand_atoms, len(_DIFFSBDD_PADDING_COLUMNS)).to(device=device)
-    h_dist = FixedPointDistribution(h.flatten(), device=device)
-    h_score = h_dist.export_score_function(scheduler_sbdd)
-    q_h = ProbabilityPath(scheduler_sbdd, h_score)
-
-    q_sbdd_pad = PaddedProbabilityPath([q_sbdd, q_h], [masks.diffsbdd_ligand_xh, masks.diffsbdd_ligand_padding])
+    q_sbdd_pad = build_diffsbdd_ligand_path(
+        expert=diffsbdd_expert,
+        scheduler=scheduler_sbdd,
+        masks=masks,
+        padding_point=make_zero_auxiliary_point(num_ligand_atoms, masks.diffsbdd_ligand_padding, device=device),
+        device=device,
+    )
 
     prior_sbdd = diffsbdd_expert._inference_context.z
     prior = torch.randn(batch_size, masks.sample_size).to(prior_sbdd.device)
