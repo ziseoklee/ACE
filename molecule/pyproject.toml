@@ -53,31 +53,17 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-dir]
-src = "src"
-configs = "src/configs"
-experts = "src/experts"
-inference = "src/inference"
-sampling = "src/sampling"
-utils = "src/utils"
-postprocessing = "src/postprocessing"
-pretrained_models = "src/pretrained_models"
+"" = "src"
 
 [tool.setuptools.packages.find]
-where = [".", "src"]
+where = ["src"]
 include = [
-    "src",
     "configs*",
     "experts*",
     "inference*",
     "sampling*",
     "utils*",
     "postprocessing*",
-    "pretrained_models*",
-]
-exclude = [
-    "pretrained_models.DiffSBDD*",
-    "pretrained_models.e3_diffusion_for_molecules*",
-    "pretrained_models.GeoDiff*",
 ]
 namespaces = true
 
