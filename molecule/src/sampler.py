@@ -14,6 +14,9 @@ from src.probability_path import MoEProbabilityPath
 
 logger = logging.getLogger(__name__)
 
+InterleaveFn = Callable[[torch.Tensor, np.ndarray], torch.Tensor]
+PostprocessFn = Callable[[torch.Tensor], torch.Tensor]
+
 
 def computation_overhead_logger(func):
     """
@@ -104,8 +107,9 @@ class MoEPDESampler:
         cls,
         moe_probability_path: MoEProbabilityPath,
         sampler_cfg: _BaseSamplerConfig,
-        interleave_fn: Callable[[torch.Tensor, np.ndarray], torch.Tensor],  # (x, choice) -> x
         prior_sbdd: torch.Tensor,
+        interleave_fns: list[InterleaveFn] | None = None,
+        postprocess_fns: list[PostprocessFn] | None = None,
     ):
         """Sample MoE paths with SDE updates before ``ode_start_t`` and ODE updates after it.
 
@@ -113,7 +117,7 @@ class MoEPDESampler:
         the PF-ODE velocity. The logq tensor, log weights, and resampling choices
         are intentionally frozen in this phase; this is an approximation used to
         avoid endpoint logq/reweighting instabilities while still applying the
-        interleave function to keep conditioning state aligned.
+        interleave functions to keep conditioning state aligned.
         """
         batch_size = sampler_cfg.batch_size
         device = sampler_cfg.device
@@ -209,9 +213,7 @@ class MoEPDESampler:
                 else:
                     choice = torch.arange(batch_size).numpy()
 
-            # Apply interleaving function if provided
-            if interleave_fn is not None:
-                x_next = interleave_fn(x_next, choice)
+            x_next = cls.apply_interleave_fns(x_next, choice, interleave_fns)
 
             # Store trajectories
             x_tensor_list.append(x_next.detach().cpu())
@@ -225,12 +227,37 @@ class MoEPDESampler:
             logweight_tensor = logweight_tensor_next
 
         x_trajectory = torch.stack(x_tensor_list)
-        x1 = x_trajectory[-1]
+        x1 = cls.apply_postprocess_fns(x, postprocess_fns)
         logweight_trajectory = torch.stack(logweight_tensor_list)
         logq_trajectory = torch.stack(logq_tensor_list)
         choices = np.array(choices)
 
-        return x1, x_trajectory, logweight_trajectory, logq_trajectory, choices
+        return x1.detach(), x_trajectory, logweight_trajectory, logq_trajectory, choices
+
+    @staticmethod
+    def apply_interleave_fns(
+        x: Float[torch.Tensor, "B D"],
+        choices: Int[np.ndarray, " B"],
+        interleave_fns: list[InterleaveFn] | None,
+    ) -> Float[torch.Tensor, "B D"]:
+        if interleave_fns is None:
+            return x
+
+        for interleave_fn in interleave_fns:
+            x = interleave_fn(x, choices)
+        return x
+
+    @staticmethod
+    def apply_postprocess_fns(
+        x: Float[torch.Tensor, "B D"],
+        postprocess_fns: list[PostprocessFn] | None,
+    ) -> Float[torch.Tensor, "B D"]:
+        if postprocess_fns is None:
+            return x
+
+        for postprocess_fn in postprocess_fns:
+            x = postprocess_fn(x)
+        return x
 
     @staticmethod
     def resample_particles(
@@ -255,7 +282,7 @@ class MoEPDESampler:
             None: placeholder to match your original signature
         """
         logits = logits.unsqueeze(0).expand(num_out_particles, -1)
-        B, K = logits.shape
+        num_rows, num_categories = logits.shape
 
         # Stable softmax, then collapse tiny probs
         probs = torch.softmax(logits, dim=-1)
@@ -263,7 +290,7 @@ class MoEPDESampler:
 
         # Renormalize (rows that got fully zeroed become uniform)
         row_sum = probs.sum(dim=-1, keepdim=True)
-        uniform = torch.full_like(probs, 1.0 / K)
+        uniform = torch.full_like(probs, 1.0 / num_categories)
         probs = torch.where(row_sum > 0, probs / row_sum.clamp_min(torch.finfo(probs.dtype).eps), uniform)
 
         # CDF (non-decreasing; duplicates OK)
@@ -273,12 +300,12 @@ class MoEPDESampler:
         if stratified:
             base = torch.rand((), device=logits.device, dtype=logits.dtype)
             # center within each stratum (optional but nice)
-            u = (base + (torch.arange(B, device=logits.device, dtype=logits.dtype) + 0.5) / B) % 1.0
+            u = (base + (torch.arange(num_rows, device=logits.device, dtype=logits.dtype) + 0.5) / num_rows) % 1.0
         else:
-            u = torch.rand(B, device=logits.device, dtype=logits.dtype)
+            u = torch.rand(num_rows, device=logits.device, dtype=logits.dtype)
 
         # Use torch.searchsorted to find the indices where u would be inserted to maintain order in cdf
         ids = torch.searchsorted(cdf, u.unsqueeze(-1), right=True).squeeze(-1)
-        ids = ids.clamp_(0, K - 1)
+        ids = ids.clamp_(0, num_categories - 1)
 
         return ids.cpu().numpy()

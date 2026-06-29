@@ -14,7 +14,6 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 from rdkit import Chem
 from rdkit.Chem.rdchem import Mol
-from torch.distributions import Normal
 
 from configs import config as _config_registry  # Noqa: F401
 from configs.config_sampler import _BaseSamplerConfig
@@ -175,17 +174,7 @@ def run_single_task_sampling(
         device=device,
     )
 
-    prior_sbdd = diffsbdd_expert._inference_context.z
-    prior = torch.randn(batch_size, masks.sample_size).to(prior_sbdd.device)
-    prior[:, masks.diffsbdd_ligand_xh] = prior_sbdd
-
-    # Compute log probability of gaussian prior
-    standard_normal_dist = Normal(loc=0.0, scale=1.0)
-    log_probs = standard_normal_dist.log_prob(prior)
-    log_probs = log_probs.sum(dim=-1).unsqueeze(1).repeat(1, 4).unsqueeze(2)
-
-    interleave_fn_sbdd = functools.partial(diffsbdd_expert.interleave, mask=masks.diffsbdd_ligand_xh)
-
+    logger.info("  Build MoE probability path for multi-expert sampling...")
     moe_probability_path = MoEProbabilityPath(
         scheduler=scheduler_geodiff,  # for global noise schedule
         q_list=[q_geodiff_pad, q_edm_fragment_pad, q_sbdd_pad, q_edm_ligand_pad],
@@ -199,12 +188,31 @@ def run_single_task_sampling(
         sample_size=masks.sample_size,  # we assume 1-D sample shape
     )
 
+    ### Run MoE-PDE sampling
+    prior_sbdd = diffsbdd_expert._inference_context.z
+    prior = torch.randn(batch_size, masks.sample_size).to(prior_sbdd.device)
+    prior[:, masks.diffsbdd_ligand_xh] = prior_sbdd
+
+    interleave_fns = [
+        geodiff_expert.interleave,
+        edm_expert_fragment.interleave,
+        functools.partial(diffsbdd_expert.interleave, mask=masks.diffsbdd_ligand_xh),
+        edm_expert_ligand.interleave,
+    ]
+    postprocess_fns = [
+        geodiff_expert.postprocess,
+        edm_expert_fragment.postprocess,
+        functools.partial(diffsbdd_expert.postprocess, mask=masks.diffsbdd_ligand_xh),
+        edm_expert_ligand.postprocess,
+    ]
+
     with torch.no_grad():
         samples, _, logweight_trajectory, _, choices = MoEPDESampler.sample(
             moe_probability_path,
             sampler_cfg,
-            interleave_fn=interleave_fn_sbdd,
             prior_sbdd=prior_sbdd,
+            interleave_fns=interleave_fns,
+            postprocess_fns=postprocess_fns,
         )
 
     # Log the log weights and choices across the trajectory for debugging and analysis
@@ -217,10 +225,6 @@ def run_single_task_sampling(
         for step, choice in enumerate(choices):
             f_choices.write(f"Step {step}: {choice}\n")
 
-    samples = diffsbdd_expert.postprocess(
-        samples.to(device=device),
-        mask=masks.diffsbdd_ligand_xh,
-    )
     xh_lig = samples[:, masks.diffsbdd_ligand_xh].reshape(batch_size, num_ligand_atoms, -1)
     samples = MoleculeBuilder.build_batch(
         xh=xh_lig,
