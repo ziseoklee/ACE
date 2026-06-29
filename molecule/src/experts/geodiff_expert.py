@@ -18,7 +18,7 @@ from torch import nn
 from torch_geometric.data import Data, Dataset
 from torch_geometric.transforms import Compose
 
-from src.const import PRETRAINED_MODEL_DIR
+from src.experts import PRETRAINED_MODEL_DIR
 from src.experts.base_expert import MoEExpertABC
 
 GEODIFF_SOURCE_DIR = PRETRAINED_MODEL_DIR / "GeoDiff"

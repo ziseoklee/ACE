@@ -11,7 +11,7 @@ from jaxtyping import Float, Int
 from rdkit import Chem
 from torch_scatter import scatter_add, scatter_mean
 
-from src.const import PRETRAINED_MODEL_DIR
+from src.experts import PRETRAINED_MODEL_DIR
 from src.experts.base_expert import MoEExpertABC
 from src.utils.logging_utils import redirect_output_to_logger
 

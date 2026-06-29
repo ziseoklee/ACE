@@ -10,7 +10,7 @@ from e3_diffusion_for_molecules.equivariant_diffusion.utils import assert_mean_z
 from e3_diffusion_for_molecules.qm9.models import get_model
 from jaxtyping import Float
 
-from src.const import PRETRAINED_MODEL_DIR
+from src.experts import PRETRAINED_MODEL_DIR
 from src.experts.base_expert import MoEExpertABC
 from src.utils.logging_utils import redirect_output_to_logger
 
