@@ -37,7 +37,7 @@ class GeoDiffInferenceContext:
     w_global: float
     clip_local: float | None
     clip: float
-    z: Float[torch.Tensor, "B D"]
+    z: Float[torch.Tensor, "B L*(coords+atom_types)"]
     num_samples: int
     data_shape: tuple[int, ...]
 
@@ -134,7 +134,7 @@ class GeoDiffExpert(MoEExpertABC):
     def score(
         self,
         t: Float[torch.Tensor, " B"],
-        x: Float[torch.Tensor, "B D"],
+        x: Float[torch.Tensor, "B L*(coords+atom_types)"],
     ) -> Float[torch.Tensor, " B"]:
         # Implementation for scoring using the GeoDiff expert
         model = self.model
@@ -202,13 +202,17 @@ class GeoDiffExpert(MoEExpertABC):
         # print(f'centeralized score_geo')
         return score.reshape(curr_shape)
 
-    def interleave(self, x: Float[torch.Tensor, "B D"], *args, **kwargs) -> Float[torch.Tensor, "B D"]:
+    def interleave(
+        self, x: Float[torch.Tensor, "B L*(coords+atom_types)"], *args, **kwargs
+    ) -> Float[torch.Tensor, "B L*(coords+atom_types)"]:
         # Implementation for interleaving data specific to GeoDiff; no-op
         return x
 
-    def postprocess(self, *args, **kwargs):
-        # Implementation for postprocessing results from the GeoDiff expert
-        ...
+    def postprocess(
+        self, x: Float[torch.Tensor, "B L*(coords+atom_types)"], *args, **kwargs
+    ) -> Float[torch.Tensor, "B L*(coords+atom_types)"]:
+        # Implementation for postprocessing results from the GeoDiff expert; no-op
+        return x
 
 
 class ConformationDatasetFromDataList(Dataset):
@@ -292,17 +296,3 @@ class PackedConformationDatasetFromDataList(ConformationDatasetFromDataList):
 
     def __len__(self):
         return len(self.new_data)
-
-
-if __name__ == "__main__":
-    # Example usage of the GeoDiffExpert class
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    geodiff_expert = GeoDiffExpert.from_pretrained(device=device)
-    logger.info("GeoDiff Expert loaded successfully.")
-
-    processed_data = geodiff_expert.prepare_data(
-        batch_size=10,
-        fragment_mol=Chem.SDMolSupplier("examples/4m7t_fragment.sdf")[0],
-    )
-    print("Prepared data keys:", processed_data.keys())

@@ -5,7 +5,6 @@ from pathlib import Path
 import numpy as np
 import torch
 from Bio.PDB.PDBParser import PDBParser
-from diffsbdd.analysis.molecule_builder import build_molecule, process_molecule
 from diffsbdd.lightning_modules import LigandPocketDDPM
 from diffsbdd.utils import get_pocket_from_ligand, num_nodes_to_batch_mask
 from jaxtyping import Float, Int
@@ -33,7 +32,7 @@ class DiffSBDDInferenceContext:
     pocket: dict[str, torch.Tensor]
     pocket_com_before: torch.Tensor
     device: str
-    z: Float[torch.Tensor, "B D"]
+    z: Float[torch.Tensor, "B L*(coords+atom_types)"]
     xh_pocket: torch.Tensor
     data_shape: tuple[int, ...]
 
@@ -116,7 +115,7 @@ class DiffSBDDExpert(MoEExpertABC):
     def score(
         self,
         t: Float[torch.Tensor, " B"],
-        x: Float[torch.Tensor, "B D"],
+        x: Float[torch.Tensor, "B L*(coords+atom_types)"],
     ) -> Float[torch.Tensor, " B"]:
         # Implementation for scoring using the DiffSBDD expert
         model = self.model
@@ -153,10 +152,10 @@ class DiffSBDDExpert(MoEExpertABC):
 
     def interleave(
         self,
-        x: Float[torch.Tensor, "B D"],
+        x: Float[torch.Tensor, "B L*(coords+atom_types)"],
         choices: Int[np.ndarray, " B"],
         mask: torch.Tensor,
-    ) -> Float[torch.Tensor, "B D"]:
+    ) -> Float[torch.Tensor, "B L*(coords+atom_types)"]:
         """
         Keep DiffSBDD conditioning in the ligand-centered frame after resampling.
 
@@ -191,7 +190,7 @@ class DiffSBDDExpert(MoEExpertABC):
 
     def decode_mu_xh_given_z0(
         self,
-        z0_lig: Float[torch.Tensor, "N D"],
+        z0_lig: Float[torch.Tensor, "B L*(coords+atom_types)"],
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Decode z0 with the DiffSBDD posterior mean, without final Gaussian sampling."""
         model = self.model
@@ -205,30 +204,29 @@ class DiffSBDDExpert(MoEExpertABC):
         net_out_lig, _ = model.ddpm.dynamics(z0_lig, xh_pocket, t_zeros, lig_mask, pocket["mask"])
         mu_xh_lig = model.ddpm.compute_x_pred(net_out_lig, z0_lig, gamma_0, lig_mask)
 
-        x_lig, h_lig = model.ddpm.unnormalize(mu_xh_lig[:, : model.ddpm.n_dims], z0_lig[:, model.ddpm.n_dims :])
+        x_lig, h_lig = model.ddpm.unnormalize(mu_xh_lig[..., : model.ddpm.n_dims], z0_lig[..., model.ddpm.n_dims :])
         x_pocket, h_pocket = model.ddpm.unnormalize(
-            xh_pocket[:, : model.ddpm.n_dims],
-            xh_pocket[:, model.ddpm.n_dims :],
+            xh_pocket[..., : model.ddpm.n_dims],
+            xh_pocket[..., model.ddpm.n_dims :],
         )
 
         return x_lig, h_lig, x_pocket, h_pocket
 
     def postprocess(
         self,
-        x: Float[torch.Tensor, "B D"],
+        x: Float[torch.Tensor, "B L*(coords+atom_types)"],
         mask: torch.Tensor,
-        frag_atom_type: torch.Tensor | None = None,
-    ) -> list[Chem.Mol | None]:
-        """Convert the DiffSBDD portion of a MoE sample into RDKit molecules."""
+    ) -> Float[torch.Tensor, "B L*(coords+atom_types)"]:
+        """Decode and restore the DiffSBDD portion while preserving the full MoE tensor shape."""
         model = self.model
         lig_mask = self._inference_context.lig_mask
         pocket = self._inference_context.pocket
-        xh_pocket = self._inference_context.xh_pocket
         pocket_com_before = self._inference_context.pocket_com_before
         data_shape = self._inference_context.data_shape
-        batch_size = self._inference_context.num_samples
 
-        z0_lig = x.clone().detach()[..., mask].reshape(data_shape)
+        x_clone = x.clone().detach()
+        curr_shape = x_clone[..., mask].shape
+        z0_lig = x_clone[..., mask].reshape(data_shape)
         x_lig, h_lig, x_pocket, h_pocket = self.decode_mu_xh_given_z0(z0_lig)
 
         max_cog = scatter_add(x_lig, lig_mask, dim=0).abs().max().item()
@@ -249,50 +247,5 @@ class DiffSBDDExpert(MoEExpertABC):
         xh_pocket[:, : model.x_dims] += (pocket_com_before - pocket_com_after)[pocket["mask"]]
         xh_lig[:, : model.x_dims] += (pocket_com_before - pocket_com_after)[lig_mask]
 
-        # Build mol objects
-        coordinates = xh_lig[:, : model.x_dims].detach().cpu()
-        atom_type = xh_lig[:, model.x_dims :].argmax(1).detach().cpu()
-
-        molecules: list[Chem.Mol | None] = []
-        coordinates_by_sample = self._batch_to_list_preserve_atom_order(coordinates, lig_mask.cpu())
-        atom_type_by_sample = self._batch_to_list_preserve_atom_order(atom_type, lig_mask.cpu())
-        for coordinates_sample, atom_type_sample in zip(coordinates_by_sample, atom_type_by_sample):
-            atom_type_sample = atom_type_sample.clone()
-            if frag_atom_type is not None:
-                atom_type_sample[: len(frag_atom_type)] = frag_atom_type.detach().cpu()
-
-            mol = build_molecule(coordinates_sample, atom_type_sample, model.dataset_info, add_coords=True)
-            if mol is None:
-                molecules.append(None)
-                continue
-
-            mol = process_molecule(mol, add_hydrogens=False, sanitize=False, relax_iter=0, largest_frag=False)
-            if mol is not None:
-                molecules.append(mol)
-
-        return molecules
-
-    @staticmethod
-    def _batch_to_list_preserve_atom_order(data: torch.Tensor, batch_mask: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        """Split a flattened ligand batch without reordering atoms inside each sample."""
-        if batch_mask.device != data.device:
-            batch_mask = batch_mask.to(data.device)
-        sample_ids = torch.unique(batch_mask, sorted=True)
-        return tuple(data[batch_mask == sample_id] for sample_id in sample_ids)
-
-
-if __name__ == "__main__":
-    # Example usage of the DiffSBDDExpert class
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    diffsbdd_expert = DiffSBDDExpert.from_pretrained(device=device)
-    logger.info("DiffSBDD Expert loaded successfully.")
-
-    reference_ligand_mol = Chem.SDMolSupplier("examples/4m7t_fragment.sdf")[0]
-    prepared_data = diffsbdd_expert.prepare_data(
-        batch_size=10,
-        num_nodes=10,
-        protein_pocket_pdb_path="examples/4m7t_pocket.pdb",
-        reference_ligand_mol=reference_ligand_mol,
-    )
-    print("Prepared data keys:", prepared_data.keys())
+        x_clone[..., mask] = xh_lig.detach().reshape(curr_shape).to(x_clone.device)
+        return x_clone

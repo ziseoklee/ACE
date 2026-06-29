@@ -26,12 +26,12 @@ logger = logging.getLogger(__name__)
 class EDMInferenceContext:
     model: EnVariationalDiffusion
     batch_size: int
-    node_mask: Float[torch.Tensor, "B N"]
-    edge_mask: Float[torch.Tensor, "B N N"]
+    node_mask: Float[torch.Tensor, "B L"]
+    edge_mask: Float[torch.Tensor, "B L L"]
     context: None
     max_n_nodes: int
     device: str
-    z: Float[torch.Tensor, "B D"]
+    z: Float[torch.Tensor, "B L*(coords+atom_types)"]
     data_shape: tuple[int, ...]
 
 
@@ -120,7 +120,7 @@ class EDMExpert(MoEExpertABC):
     def score(
         self,
         t: Float[torch.Tensor, " B"],
-        x: Float[torch.Tensor, "B D"],
+        x: Float[torch.Tensor, "B L*(coords+atom_types)"],
     ) -> Float[torch.Tensor, " B"]:
         # Implementation for scoring using the EDM expert
         model = self.model
@@ -165,21 +165,14 @@ class EDMExpert(MoEExpertABC):
 
         return score.reshape(curr_shape)
 
-    def interleave(self, x: Float[torch.Tensor, "B D"], *args, **kwargs) -> Float[torch.Tensor, "B D"]:
+    def interleave(
+        self, x: Float[torch.Tensor, "B L*(coords+atom_types)"], *args, **kwargs
+    ) -> Float[torch.Tensor, "B L*(coords+atom_types)"]:
         # Implementation for interleaving data specific to EDM; no-op
         return x
 
-    def postprocess(self, *args, **kwargs):
-        # Implementation for postprocessing results from the EDM expert
-        ...
-
-
-if __name__ == "__main__":
-    # Example usage of the EDMExpert class
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    edm_expert = EDMExpert.from_pretrained(device=device)
-    logger.info("EDM Expert loaded successfully.")
-
-    prepared_data = edm_expert.prepare_data(batch_size=10, num_nodes=10)
-    print("Prepared data keys:", prepared_data.keys())
+    def postprocess(
+        self, x: Float[torch.Tensor, "B L*(coords+atom_types)"], *args, **kwargs
+    ) -> Float[torch.Tensor, "B L*(coords+atom_types)"]:
+        # Implementation for postprocessing results from the EDM expert; no-op
+        return x
