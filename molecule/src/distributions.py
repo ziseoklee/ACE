@@ -1,10 +1,15 @@
 import functools
+from typing import Protocol
 
 import torch
 import torch.nn as nn
 from jaxtyping import Float
 
-from src.scheduler import SchedulerABC
+
+class Scheduler(Protocol):
+    def ddpm_alpha2(self, t: Float[torch.Tensor, " B"]) -> Float[torch.Tensor, " B"]: ...
+
+    def ddpm_sigma2(self, t: Float[torch.Tensor, " B"]) -> Float[torch.Tensor, " B"]: ...
 
 
 class MultivariateGaussian(nn.Module):
@@ -86,7 +91,7 @@ class FixedPointDistribution(nn.Module):
         self.point = point.to(device)
         self.device = device
 
-    def export_score_function(self, scheduler: SchedulerABC):
+    def export_score_function(self, scheduler: Scheduler):
         prior = MultivariateGaussian(
             torch.zeros(self.point.shape[0]),
             torch.eye(self.point.shape[0]),
