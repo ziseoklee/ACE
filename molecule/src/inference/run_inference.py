@@ -22,6 +22,13 @@ from configs.config_weight import ACEBumpWeightConfig, _BaseWeightConfig
 from pretrained_models.export_edm import encode_xh
 from src.distributions import FixedPointDistribution
 from src.experts import DiffSBDDExpert, EDMExpert, GeoDiffExpert
+from src.moe_layout import (
+    _DIFFSBDD_PADDING_COLUMNS,
+    _EDM_PADDING_COLUMNS,
+    _GEODIFF_PADDING_COLUMNS,
+    EDM_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX,
+    CrossDockedMoELayout,
+)
 from src.postprocessing import MoleculeBuilder
 from src.probability_path import MoEProbabilityPath, PaddedProbabilityPath, ProbabilityPath
 from src.sampler import MoEPDESampler
@@ -41,81 +48,6 @@ def seed_everything(seed):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-
-
-def make_data_component_mask_extend(num_atoms_subset, num_atoms, type="sbdd", device="cpu"):
-    # space allocation: num_atoms_subset x (coord, sbdd_atom_types, include_charge) + (num_atoms - num_atoms_subset) x (coord, edm_atom_types), we include 'H' into 'others' type
-    # edm_atoms = {'H': 0, 'C': 1, 'N': 2, 'O': 3, 'F': 4},
-    # sbdd_atoms = {'C': 0, 'N': 1, 'O': 2, 'S': 3, 'B': 4, 'Br': 5, 'Cl': 6, 'P': 7, 'I': 8, 'F': 9, 'others': 10},
-    assert type == "sbdd"
-
-    edm2sbdd_atoms = {0: 10, 1: 0, 2: 1, 3: 2, 4: 9}
-    mask_geodiff_part1 = torch.zeros(num_atoms_subset, 15).bool()
-    mask_geodiff_part1[:, :3] = True
-    mask_geodiff_part1 = mask_geodiff_part1.flatten()
-    mask_geodiff_part2 = torch.zeros(num_atoms - num_atoms_subset, 15).bool().flatten()
-    mask_geodiff = torch.cat([mask_geodiff_part1, mask_geodiff_part2], dim=0)
-
-    edm2sbdd_atoms = {0: 10, 1: 0, 2: 1, 3: 2, 4: 9}
-    mask_geodiff_h_part1 = torch.zeros(num_atoms_subset, 15).bool()
-    mask_geodiff_h_part1[:, 3:] = True
-    mask_geodiff_h_part1 = mask_geodiff_h_part1.flatten()
-    mask_geodiff_h_part2 = torch.zeros(num_atoms - num_atoms_subset, 15).bool().flatten()
-    mask_geodiff_h = torch.cat([mask_geodiff_h_part1, mask_geodiff_h_part2], dim=0)
-
-    mask_subset = mask_geodiff + mask_geodiff_h
-
-    edm2sbdd_atoms = {0: 10, 1: 0, 2: 1, 3: 2, 4: 9}
-    mask_edm_part1 = torch.zeros(num_atoms_subset, 15).bool()
-    mask_edm_part1[:, :3] = True
-    mask_edm_part1[:, [3 + edm2sbdd_atoms[i] for i in edm2sbdd_atoms]] = True
-    mask_edm_part1[:, -1] = True
-    mask_edm_part1 = mask_edm_part1.flatten()
-
-    mask_edm_h_part1 = ~mask_edm_part1
-
-    mask_edm_part2 = torch.zeros(num_atoms - num_atoms_subset, 15).bool()
-    mask_edm_part2[:, :] = True
-    mask_edm_part2 = mask_edm_part2.flatten()
-
-    mask_edm = torch.cat([mask_edm_part1, mask_edm_part2], dim=0)
-
-    mask_sbdd_part1 = torch.zeros(num_atoms_subset, 15).bool()
-    mask_sbdd_part1[:, :13] = True
-    mask_sbdd_part1 = mask_sbdd_part1.flatten()
-    mask_sbdd_part2 = torch.zeros(num_atoms - num_atoms_subset, 15).bool()
-    mask_sbdd_part2[:, :13] = True
-    mask_sbdd_part2 = mask_sbdd_part2.flatten()
-    mask_sbdd = torch.cat([mask_sbdd_part1, mask_sbdd_part2], dim=0)
-
-    mask_sbdd_hpad_part1 = torch.zeros(num_atoms_subset, 15).bool()
-    mask_sbdd_hpad_part1[:, 13:] = True
-    mask_sbdd_hpad_part1 = mask_sbdd_hpad_part1.flatten()
-    mask_sbdd_hpad_part2 = torch.zeros(num_atoms - num_atoms_subset, 15).bool()
-    mask_sbdd_hpad_part2[:, 13:] = True
-    mask_sbdd_hpad_part2 = mask_sbdd_hpad_part2.flatten()
-    mask_sbdd_hpad = torch.cat([mask_sbdd_hpad_part1, mask_sbdd_hpad_part2], dim=0)
-
-    mask = mask_sbdd + mask_sbdd_hpad
-
-    mask_edm2 = torch.zeros(num_atoms, 15).bool()
-    mask_edm2[:, :3] = True
-    mask_edm2[:, [3 + edm2sbdd_atoms[i] for i in edm2sbdd_atoms]] = True
-    mask_edm2[:, -1] = True
-    mask_edm2 = mask_edm2.flatten()
-    mask_edm2_h = ~mask_edm2
-    return (
-        mask_geodiff_part1.to(device),
-        mask_geodiff_h_part1.to(device),
-        mask_edm_part1.to(device),
-        mask_edm_h_part1.to(device),
-        mask_subset.to(device),
-        mask_sbdd.to(device),
-        mask_sbdd_hpad.to(device),
-        mask.to(device),
-        mask_edm2.to(device),
-        mask_edm2_h.to(device),
-    )
 
 
 def build_exponent_list(weight_cfg: _BaseWeightConfig) -> list[Callable[[torch.Tensor], torch.Tensor]]:
@@ -169,10 +101,10 @@ def run_single_task_sampling(
     scheduler_sbdd = DiffSBDDScheduler()
 
     ### Experts
-    edm_expert = EDMExpert.from_pretrained(device=device)
-    edm_expert_2 = EDMExpert.from_pretrained(device=device)
-    edm = edm_expert.model
-    args_edm = edm_expert.model_config
+    edm_expert_fragment = EDMExpert.from_pretrained(device=device)
+    edm_expert_ligand = EDMExpert.from_pretrained(device=device)
+    edm = edm_expert_fragment.model
+    args_edm = edm_expert_fragment.model_config
     geodiff_expert = GeoDiffExpert.from_pretrained(device=device)
     diffsbdd_expert = DiffSBDDExpert.from_pretrained(device=device)
 
@@ -180,98 +112,95 @@ def run_single_task_sampling(
 
     num_ligand_atoms = ref_ligand.GetNumAtoms()  # whole molecule size
     num_fragment_atoms = fragment.GetNumAtoms()  # fragment size
-    edm2sbdd_atoms = {0: 10, 1: 0, 2: 1, 3: 2, 4: 9}
-    (
-        mask_geodiff_part1,
-        mask_geodiff_h_part1,
-        mask_edm_part1,
-        mask_edm_h_part1,
-        mask_subset,
-        mask_sbdd,
-        mask_sbdd_hpad,
-        mask,
-        mask_edm2,
-        mask_edm2_h,
-    ) = make_data_component_mask_extend(num_fragment_atoms, num_ligand_atoms, type="sbdd", device=device)
+    edm2sbdd_atoms = EDM_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX
+    masks = CrossDockedMoELayout(
+        fragment_size=num_fragment_atoms,
+        ligand_size=num_ligand_atoms,
+        device=device,
+    ).masks()
 
     # [CONF] GeoDiff score, velocity, probability path p(Msc |Tsc)
     geodiff_expert.prepare_data(batch_size, fragment)
-    score_fn = geodiff_expert.score
-    q_geodiff = ProbabilityPath(scheduler_geodiff, score_fn)
+    score_fn_geodiff = geodiff_expert.score
+    q_geodiff = ProbabilityPath(scheduler_geodiff, score_fn_geodiff)
 
     _, _h = encode_xh(args_edm, edm, fragment)
     h_int = _h[:, :-1].argmax(dim=-1)
     h_int = torch.tensor([edm2sbdd_atoms[v.item()] for v in h_int]).to(device)
 
-    h = torch.zeros(num_fragment_atoms, 12).to(device=device)
+    h = torch.zeros(num_fragment_atoms, len(_GEODIFF_PADDING_COLUMNS)).to(device=device)
     h[:, list(edm2sbdd_atoms.values()) + [-1]] = _h.to(device=device)
     h_dist = FixedPointDistribution(h.flatten(), device=device)
     h_score = h_dist.export_score_function(scheduler_geodiff)
     q_h = ProbabilityPath(scheduler_geodiff, h_score)
 
-    q_geodiff_pad = PaddedProbabilityPath([q_geodiff, q_h], [mask_geodiff_part1, mask_geodiff_h_part1])
-    # print("q_geodiff dim:", q_geodiff_pad.dim)  #: should be 15 * n (fragment size)
-    # print("g_geodiff_pad.reverse:", q_geodiff_pad.reverse)  # True
+    q_geodiff_pad = PaddedProbabilityPath(
+        [q_geodiff, q_h],
+        [masks.geodiff_fragment_coords, masks.geodiff_fragment_atom_types_and_charge],
+    )
 
     # [DN] EDM score, velocity, probability path for fragment part p(Msc)
-    edm_expert.prepare_data(batch_size, num_fragment_atoms)
-    score_fn_edm = edm_expert.score
-    q_edm = ProbabilityPath(scheduler_edm, score_fn_edm)
+    edm_expert_fragment.prepare_data(batch_size, num_fragment_atoms)
+    score_fn_edm_fragment = edm_expert_fragment.score
+    q_edm_fragment = ProbabilityPath(scheduler_edm, score_fn_edm_fragment)
 
-    h = torch.zeros(num_fragment_atoms, 6).to(device=device)
+    h = torch.zeros(num_fragment_atoms, len(_EDM_PADDING_COLUMNS)).to(device=device)
     h_dist = FixedPointDistribution(h.flatten(), device=device)
     h_score = h_dist.export_score_function(scheduler_edm)
-    q_h = ProbabilityPath(scheduler_edm, h_score)
+    q_h_fragment = ProbabilityPath(scheduler_edm, h_score)
 
-    q_edm_pad = PaddedProbabilityPath([q_edm, q_h], [mask_edm_part1, mask_edm_h_part1])
-    # print("q_edm dim:", q_edm_pad.dim)  #: should be 15 * n (fragment size)
-    # print("g_edm_pad.reverse:", q_edm_pad.reverse)  # True
+    q_edm_fragment_pad = PaddedProbabilityPath(
+        [q_edm_fragment, q_h_fragment], [masks.edm_fragment_xh, masks.edm_fragment_padding]
+    )
 
     # [DN] EDM score, velocity, probability path for whole molecule (fragment + complement) p(M)
-    edm_expert_2.prepare_data(batch_size, num_ligand_atoms)
-    score_fn_edm2 = edm_expert_2.score
-    q_edm2 = ProbabilityPath(scheduler_edm, score_fn_edm2)
+    edm_expert_ligand.prepare_data(batch_size, num_ligand_atoms)
+    score_fn_edm_ligand = edm_expert_ligand.score
+    q_edm_ligand = ProbabilityPath(scheduler_edm, score_fn_edm_ligand)
 
-    h2 = torch.zeros(num_ligand_atoms, 6).to(device=device)
+    h2 = torch.zeros(num_ligand_atoms, len(_EDM_PADDING_COLUMNS)).to(device=device)
     h2_dist = FixedPointDistribution(h2.flatten(), device=device)
     h2_score = h2_dist.export_score_function(scheduler_edm)
-    q_h2 = ProbabilityPath(scheduler_edm, h2_score)
+    q_h_ligand = ProbabilityPath(scheduler_edm, h2_score)
 
-    q_edm_pad2 = PaddedProbabilityPath([q_edm2, q_h2], [mask_edm2, mask_edm2_h])
-    # print("q_edm2 dim:", q_edm_pad2.dim)  #: should be 15 * N (whole molecule size)
-    # print("g_edm_pad2.reverse:", q_edm_pad2.reverse)  # True
+    q_edm_ligand_pad = PaddedProbabilityPath(
+        [q_edm_ligand, q_h_ligand], [masks.edm_ligand_xh, masks.edm_ligand_padding]
+    )
 
     # [SBDD] DiffSBDD score, velocity,probability path p(M|P)
     diffsbdd_expert.prepare_data(batch_size, num_ligand_atoms, pdb_path, ref_ligand)
     score_fn_sbdd = diffsbdd_expert.score
     q_sbdd = ProbabilityPath(scheduler_sbdd, score_fn_sbdd)
 
-    h = torch.zeros(num_ligand_atoms, 2).to(device=device)
+    h = torch.zeros(num_ligand_atoms, len(_DIFFSBDD_PADDING_COLUMNS)).to(device=device)
     h_dist = FixedPointDistribution(h.flatten(), device=device)
     h_score = h_dist.export_score_function(scheduler_sbdd)
     q_h = ProbabilityPath(scheduler_sbdd, h_score)
 
-    q_sbdd_pad = PaddedProbabilityPath([q_sbdd, q_h], [mask_sbdd, mask_sbdd_hpad])
+    q_sbdd_pad = PaddedProbabilityPath([q_sbdd, q_h], [masks.diffsbdd_ligand_xh, masks.diffsbdd_ligand_padding])
 
     prior_sbdd = diffsbdd_expert._inference_context.z
-    prior = torch.randn(batch_size, *mask.shape).to(prior_sbdd.device)
-    prior[:, mask_sbdd] = prior_sbdd
-    # print("q_sbdd_pad dim:", q_sbdd_pad.dim)  #: should be 15 * N (whole molecule size)
-    # print("g_sbdd_pad.reverse:", q_sbdd_pad.reverse)  # True
+    prior = torch.randn(batch_size, masks.sample_size).to(prior_sbdd.device)
+    prior[:, masks.diffsbdd_ligand_xh] = prior_sbdd
 
     # Compute log probability of gaussian prior
     standard_normal_dist = Normal(loc=0.0, scale=1.0)
     log_probs = standard_normal_dist.log_prob(prior)
     log_probs = log_probs.sum(dim=-1).unsqueeze(1).repeat(1, 4).unsqueeze(2)
 
-    interleave_fn_sbdd = functools.partial(diffsbdd_expert.interleave, mask=mask_sbdd)
+    interleave_fn_sbdd = functools.partial(diffsbdd_expert.interleave, mask=masks.diffsbdd_ligand_xh)
 
     moe_probability_path = MoEProbabilityPath(
-        scheduler_geodiff,  # for global noise schedule
-        [q_geodiff_pad, q_edm_pad, q_sbdd_pad, q_edm_pad2],
-        mask_list=[mask_subset, mask_subset, mask, mask],
+        scheduler=scheduler_geodiff,  # for global noise schedule
+        q_list=[q_geodiff_pad, q_edm_fragment_pad, q_sbdd_pad, q_edm_ligand_pad],
+        mask_list=[
+            masks.fragment_state_in_ligand,
+            masks.fragment_state_in_ligand,
+            masks.ligand_state,
+            masks.ligand_state,
+        ],
         exponent_list=exponent_list,
-        sample_size=tuple(mask.shape)[0],  # we assume 1-D sample shape
+        sample_size=masks.sample_size,  # we assume 1-D sample shape
     )
 
     with torch.no_grad():
@@ -294,9 +223,9 @@ def run_single_task_sampling(
 
     samples = diffsbdd_expert.postprocess(
         samples.to(device=device),
-        mask=mask_sbdd,
+        mask=masks.diffsbdd_ligand_xh,
     )
-    xh_lig = samples[:, mask_sbdd].reshape(batch_size, num_ligand_atoms, -1)
+    xh_lig = samples[:, masks.diffsbdd_ligand_xh].reshape(batch_size, num_ligand_atoms, -1)
     samples = MoleculeBuilder.build_batch(
         xh=xh_lig,
         dataset_info=diffsbdd_expert.model.dataset_info,
