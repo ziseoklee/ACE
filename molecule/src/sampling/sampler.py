@@ -85,13 +85,12 @@ class MoEPDESampler:
         prior_sbdd: ParticleState,
         batch_size: int,
         device: str,
-        seed: int,
+        generator: torch.Generator,
     ) -> tuple[ParticleState, ExpertLogQ, ParticleLogWeight]:
         """
         Initialize x0, logq, and log weights tensor for the sampler.
         """
         sample_size: int = moe_probability_path.sample_size
-        generator = torch.Generator(device=device).manual_seed(seed)
         x0: ParticleState = torch.randn(
             batch_size,
             sample_size,
@@ -132,6 +131,7 @@ class MoEPDESampler:
         batch_size = sampler_cfg.batch_size
         device = sampler_cfg.device
         seed = sampler_cfg.seed
+        generator = torch.Generator(device=device).manual_seed(seed)
         num_sampling_steps = sampler_cfg.num_sampling_steps
         dt = 1 / num_sampling_steps
         timesteps = torch.arange(0, 1, dt).to(device)
@@ -149,7 +149,7 @@ class MoEPDESampler:
             prior_sbdd=prior_sbdd,
             batch_size=batch_size,
             device=device,
-            seed=seed,
+            generator=generator,
         )
         x.requires_grad = True
 
@@ -190,14 +190,18 @@ class MoEPDESampler:
                 moe_sigma = moe_probability_path.sigma(t)
 
                 # Algorithm L7: Propagate particles with Euler-Maruyama
-                dW = torch.randn_like(x) * np.sqrt(dt)  # noqa: N806
+                dW = torch.randn(x.shape, device=x.device, dtype=x.dtype, generator=generator) * np.sqrt(dt)  # noqa: N806
                 x_next = x + moe_mu * dt + moe_sigma * dW
 
                 # Algorithm L8: Update logq tensor if needed
                 # NOTE: This update is done for every (step % dlogq_calc_interval == 0) step where `use_logq` is True.
                 # NOTE: But the magnitude of update is scaled by `dlogq_calc_interval` to reflect the fact that we are effectively taking a bigger step in time for logq correction.
                 if use_logq and step % dlogq_calc_interval == 0:
-                    dlogq_tensor_drift_term, dlogq_tensor_diffusion_term = moe_probability_path.get_dlogq(t, x)
+                    dlogq_tensor_drift_term, dlogq_tensor_diffusion_term = moe_probability_path.get_dlogq(
+                        t,
+                        x,
+                        generator=generator,
+                    )
 
                     logq_tensor_next = logq_tensor + dlogq_tensor_drift_term * (dt * dlogq_calc_interval)
                     # `dlogq_noise_scale` is a hyperparameter that scales the noise added to logq correction. The noise is added to account for the stochasticity in the diffusion term and can help stabilize inference.
@@ -215,7 +219,7 @@ class MoEPDESampler:
 
                 # Algorithm 11-14: Resampling (if needed)
                 if do_resample and step % resampling_step_interval == 0:
-                    choice = cls.resample_particles(logweight_tensor_next, batch_size)
+                    choice = cls.resample_particles(logweight_tensor_next, batch_size, generator=generator)
                     x_next = x_next[choice]
                     logq_tensor_next = logq_tensor_next[choice]
                     # Algorithm L14: Reset log weights to zero after resampling
@@ -273,6 +277,7 @@ class MoEPDESampler:
     def resample_particles(
         logits: CategoryLogits,
         num_out_particles: int,  # (B,)
+        generator: torch.Generator,
         tol: float = 1e-6,
         stratified: bool = True,
     ) -> Choices:
@@ -308,11 +313,11 @@ class MoEPDESampler:
 
         # Stratified uniforms u in [0,1)
         if stratified:
-            base = torch.rand((), device=logits.device, dtype=logits.dtype)
+            base = torch.rand((), device=logits.device, dtype=logits.dtype, generator=generator)
             # center within each stratum (optional but nice)
             u = (base + (torch.arange(num_rows, device=logits.device, dtype=logits.dtype) + 0.5) / num_rows) % 1.0
         else:
-            u = torch.rand(num_rows, device=logits.device, dtype=logits.dtype)
+            u = torch.rand(num_rows, device=logits.device, dtype=logits.dtype, generator=generator)
 
         # Use torch.searchsorted to find the indices where u would be inserted to maintain order in cdf
         ids = torch.searchsorted(cdf, u.unsqueeze(-1), right=True).squeeze(-1)

@@ -316,6 +316,7 @@ class MoEProbabilityPath(ProbabilityPathABC):
         self,
         t: Float[torch.Tensor, "B 1"],
         x: Float[torch.Tensor, "B data"],
+        generator: torch.Generator | None = None,
     ) -> tuple[Float[torch.Tensor, "B E 1"], Float[torch.Tensor, "B E data"]]:
         """
         Calculate the logq correction term for each expert, which is used for logq correction in drift and resampling.
@@ -326,11 +327,17 @@ class MoEProbabilityPath(ProbabilityPathABC):
 
         x_subset_list = [x[:, mask] for mask in self.mask_list]
         div_s = torch.stack(
-            [divergence_hutchinson(q.score, t, x_subset) for q, x_subset in zip(self.q_list, x_subset_list)],
+            [
+                divergence_hutchinson(q.score, t, x_subset, generator=generator)
+                for q, x_subset in zip(self.q_list, x_subset_list)
+            ],
             dim=1,
         )
         div_v = torch.stack(
-            [divergence_hutchinson(q.v, t, x_subset) for q, x_subset in zip(self.q_list, x_subset_list)],
+            [
+                divergence_hutchinson(q.v, t, x_subset, generator=generator)
+                for q, x_subset in zip(self.q_list, x_subset_list)
+            ],
             dim=1,
         )
         sigma = self.sigma(t).unsqueeze(1)  # (B, 1)
@@ -388,6 +395,7 @@ def divergence_hutchinson(
     score_fn: ScoreFunctionType,
     t: Float[torch.Tensor, "B 1"],
     x: Float[torch.Tensor, "B data"],
+    generator: torch.Generator | None = None,
     n_probe: int = 1,
     rademacher: bool = True,
     create_graph: bool = False,  # sampling usually doesn't need higher-order grads
@@ -419,7 +427,17 @@ def divergence_hutchinson(
 
     div = x.new_zeros((x.shape[0], 1))
     for k in range(n_probe):
-        eps = torch.randint_like(x, low=0, high=2).float().mul_(2).sub_(1) if rademacher else torch.randn_like(x)
+        if rademacher:
+            eps = torch.randint(
+                low=0,
+                high=2,
+                size=x.shape,
+                device=x.device,
+                generator=generator,
+            ).to(dtype=x.dtype)
+            eps = eps.mul_(2).sub_(1)
+        else:
+            eps = torch.randn(x.shape, device=x.device, dtype=x.dtype, generator=generator)
 
         def one_pass(curr_jitter: float):
             with torch.enable_grad():
