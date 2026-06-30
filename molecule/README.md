@@ -97,3 +97,30 @@ uv run ace-evaluate crossdocked \
 # Evaluation output structure will look like:
 #   outputs/crossdocked2020/{run}/evaluation/{samples,tasks,summary}.csv
 ```
+
+## Source layout
+
+The scaffold-decoration workflow is organized around a few small layers:
+
+```text
+src/
+├── run_inference.py              # Hydra entrypoint for one scaffold-decoration inference
+├── run_crossdocked_inference.py  # Hydra entrypoint for CrossDocked2020 benchmark inference
+├── configs/                      # Hydra structured configs and default yaml files
+├── inference/                    # Condition-level orchestration and shared runtime loading
+├── experts/                      # Adapters for pretrained DiffSBDD, EDM, and GeoDiff experts
+├── sampling/                     # Probability paths, schedulers, MoE path construction, and samplers
+├── postprocessing/               # Molecule building, scaffold topology enforcement, valence fixes
+├── evaluation/                   # Click CLI, metrics, CrossDocked2020 evaluation, and summaries
+├── pretrained_models/            # Vendored pretrained expert repositories
+├── lib/                          # Packaged external binaries such as qvina2
+└── utils/                        # Small shared utilities
+```
+
+The command-line entrypoints mirror this separation:
+
+- `ace-infer`: single-condition scaffold-decoration inference
+- `ace-crossdocked-infer`: CrossDocked2020 benchmark inference
+- `ace-evaluate`: per-sample and CrossDocked2020 evaluation
+
+Pretrained model code is kept under `src/pretrained_models/`, while `src/experts/` provides the ACE/MoE-facing adapter layer. The sampler treats generated ligands as point clouds. Converting those point clouds into RDKit molecules by adding bonds and enforcing scaffold topology is handled in `src/postprocessing/`.
