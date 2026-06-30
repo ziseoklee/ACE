@@ -37,11 +37,13 @@ def run_crossdocked_inference(cfg: DictConfig, output_dir: Path) -> None:
     processed_data_dir = data_root / "processed"
     save_root = Path(benchmark_cfg.save_dir)
     run_save_dir = _make_run_save_dir(save_root, sampler_cfg, weight_cfg)
+    inference_save_dir = run_save_dir / "inference"
 
     logger.info("Hydra output directory: %s", output_dir)
     logger.info("CrossDocked2020 data root: %s", data_root)
     logger.info("CrossDocked2020 save root: %s", save_root)
     logger.info("CrossDocked2020 run save directory: %s", run_save_dir)
+    logger.info("CrossDocked2020 inference save directory: %s", inference_save_dir)
 
     runtime = load_sampling_runtime(weight_cfg=weight_cfg, device=sampler_cfg.device)
     log_exponent_list(runtime.exponent_list)
@@ -49,7 +51,7 @@ def run_crossdocked_inference(cfg: DictConfig, output_dir: Path) -> None:
     task_path_list = _load_task_paths(processed_data_dir)
     logger.info("Loaded %d CrossDocked2020 tasks from %s", len(task_path_list), processed_data_dir)
 
-    run_save_dir.mkdir(parents=True, exist_ok=False)
+    inference_save_dir.mkdir(parents=True, exist_ok=False)
     for task_path in tqdm(task_path_list):
         logger.info("Start task id %s | total %d", task_path.stem, len(task_path_list))
         try:
@@ -82,7 +84,7 @@ def run_crossdocked_inference(cfg: DictConfig, output_dir: Path) -> None:
             )
             continue
 
-        task_save_dir = run_save_dir / task_path.stem
+        task_save_dir = inference_save_dir / task_path.stem
         if task_save_dir.exists():
             shutil.rmtree(task_save_dir)
         task_save_dir.mkdir(parents=True, exist_ok=True)
