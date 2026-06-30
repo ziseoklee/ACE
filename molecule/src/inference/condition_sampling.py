@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from jaxtyping import Float
 from rdkit import Chem
-from rdkit.Chem.rdchem import Mol
+from rdkit.Chem import Mol
 
 from configs.config_sampler import _BaseSamplerConfig
 from inference.sampling_runtime import SamplingRuntime, seed_everything
