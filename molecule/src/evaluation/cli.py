@@ -64,7 +64,7 @@ def docking(
 @main.command()
 @click.option("--run_dir", type=click.Path(path_type=Path, file_okay=False), required=True)
 @click.option("--data_root", type=click.Path(path_type=Path, file_okay=False), default=Path("data/crossdocked"))
-@click.option("--metrics", multiple=True, default=("druglikeness",), show_default=True)
+@click.option("--metrics", multiple=True, default=("druglikeness", "docking"), show_default=True)
 @click.option("--expected_num_samples", type=int, default=None)
 @click.option("--output_dir", type=click.Path(path_type=Path, file_okay=False), default=None)
 @click.option("--max_ligand_atoms", type=int, default=29, show_default=True)

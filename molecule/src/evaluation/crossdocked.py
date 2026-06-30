@@ -42,7 +42,7 @@ def evaluate_crossdocked_run(
     run_dir: Path,
     data_root: Path,
     *,
-    metrics: Sequence[str] = ("druglikeness",),
+    metrics: Sequence[str] = ("druglikeness", "docking"),
     expected_num_samples: int | None = None,
     output_dir: Path | None = None,
     max_ligand_atoms: int = 29,
@@ -160,7 +160,9 @@ def _normalize_metrics(metrics: Sequence[str]) -> tuple[str, ...]:
     normalized = tuple(metric.lower() for metric in metrics)
     unsupported = sorted(set(normalized) - SUPPORTED_METRICS)
     if unsupported:
-        raise ValueError(f"Unsupported evaluation metrics: {unsupported}. Supported metrics: {sorted(SUPPORTED_METRICS)}")
+        raise ValueError(
+            f"Unsupported evaluation metrics: {unsupported}. Supported metrics: {sorted(SUPPORTED_METRICS)}"
+        )
     return normalized
 
 
