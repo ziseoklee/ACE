@@ -1,6 +1,7 @@
 import copy
 import logging
 import shutil
+from collections.abc import Sequence
 from dataclasses import fields, is_dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -188,7 +189,7 @@ def _path_token(value: object) -> str:
     return "".join(char if char.isalnum() or char in {"_", "-"} else "-" for char in text).strip("-")
 
 
-def _write_molecule_samples(samples: list[Mol | None], save_dir: Path, prefix: str = "") -> None:
+def _write_molecule_samples(samples: Sequence[Mol | None], save_dir: Path, prefix: str = "") -> None:
     for idx, sample in enumerate(samples):
         if sample is None:
             continue

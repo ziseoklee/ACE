@@ -2,6 +2,7 @@ import copy
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import cast
 
 import torch
 import yaml
@@ -148,13 +149,16 @@ class GeoDiffExpert(MoEExpertABC):
         batch_size = x.shape[0]
 
         x = x.reshape(data_shape)
-        alphas = model.alphas
+        alphas: Float[torch.Tensor, "T"] = cast(torch.Tensor, model.alphas)  # noqa: UP037,F821
         sigmas = (1.0 - alphas).sqrt() / alphas.sqrt()
 
-        num_timesteps = model.num_timesteps
-        i = (num_timesteps * t).int().clamp(0, num_timesteps - 1)[0].item()
+        num_timesteps = int(model.num_timesteps)
+        timestep = int((num_timesteps * t).long().clamp(0, num_timesteps - 1)[0, 0].item())
+        alpha_t = alphas[timestep]
+        sigma_t = sigmas[timestep]
 
-        t = torch.full(size=(1,), fill_value=i, dtype=torch.long, device=x.device)
+        time_step = torch.full(size=(1,), fill_value=timestep, dtype=torch.long, device=x.device)
+        scaled_pos = x / alpha_t.sqrt()
 
         (
             edge_inv_global,
@@ -165,11 +169,11 @@ class GeoDiffExpert(MoEExpertABC):
             local_edge_mask,
         ) = model(
             atom_type=batch.atom_type,
-            pos=x / alphas[i].sqrt(),
+            pos=scaled_pos,
             bond_index=batch.edge_index,
             bond_type=batch.edge_type,
             batch=batch.batch,
-            time_step=t,
+            time_step=time_step,
             return_edges=True,
             extend_order=False,
             extend_radius=True,
@@ -179,23 +183,23 @@ class GeoDiffExpert(MoEExpertABC):
         # Local
         node_eq_local = eq_transform(
             edge_inv_local,
-            x / alphas[i].sqrt(),
+            scaled_pos,
             edge_index[:, local_edge_mask],
             edge_length[local_edge_mask],
         )
         if clip_local is not None:
             node_eq_local = clip_norm(node_eq_local, limit=clip_local)
         # Global
-        if sigmas[i] < global_start_sigma:
+        if float(sigma_t.item()) < global_start_sigma:
             edge_inv_global = edge_inv_global * (1 - local_edge_mask.view(-1, 1).float())
-            node_eq_global = eq_transform(edge_inv_global, x / alphas[i].sqrt(), edge_index, edge_length)
+            node_eq_global = eq_transform(edge_inv_global, scaled_pos, edge_index, edge_length)
             node_eq_global = clip_norm(node_eq_global, limit=clip)
         else:
             node_eq_global = 0
         # Sum
         eps_pos = node_eq_local + node_eq_global * w_global  # + eps_pos_reg * w_reg
 
-        score = eps_pos / (1 - torch.ones_like(eps_pos) * alphas[i]).sqrt()
+        score = eps_pos / (1 - torch.ones_like(eps_pos) * alpha_t).sqrt()
         score = score.reshape(batch_size, -1, 3)
         score = score - score.mean(dim=1).unsqueeze(1)
         # print(f'centeralized score_geo')

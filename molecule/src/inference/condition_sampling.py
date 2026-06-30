@@ -100,7 +100,7 @@ def build_condition_probability_path(
 
     _, fragment_h = runtime.edm_fragment.encode_xh(condition.fragment)
     fragment_atom_types = fragment_h[:, :-1].argmax(dim=-1)
-    fragment_atom_types = torch.tensor([edm2sbdd_atoms[v.item()] for v in fragment_atom_types], device=device)
+    fragment_atom_types = torch.tensor([edm2sbdd_atoms[int(v.item())] for v in fragment_atom_types], device=device)
 
     geodiff_atom_type_point = make_zero_auxiliary_point(
         num_fragment_atoms,
