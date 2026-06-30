@@ -5,8 +5,8 @@ from typing import Any
 
 from rdkit.Chem.rdchem import Mol
 
+from evaluation.backends.qvina import qvina_score_from_mol
 from evaluation.metrics.druglikeness import load_ligand_sdf
-from utils.metrics.qvina import qvina_score_from_mol
 
 
 def evaluate_docking(

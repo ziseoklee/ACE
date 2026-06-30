@@ -14,7 +14,7 @@ from configs.config_sampler import _BaseSamplerConfig
 from configs.config_weight import _BaseWeightConfig
 from inference.condition_sampling import SamplingCondition, sample_condition, write_sampling_result
 from inference.sampling_runtime import load_sampling_runtime, log_exponent_list
-from utils.postprocess_valfix_utils import postprocess_valfix
+from postprocessing.valence_fix import postprocess_valfix
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)

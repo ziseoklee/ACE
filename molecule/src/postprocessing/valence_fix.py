@@ -3,7 +3,7 @@ from pathlib import Path
 
 from rdkit import Chem
 
-from utils.enforce_frag import reconstruct_molecule_with_scaffold
+from postprocessing.fragment_enforcement import reconstruct_molecule_with_scaffold
 
 logger = logging.getLogger(__name__)
 

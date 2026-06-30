@@ -466,7 +466,7 @@ def fix_valence_issues(mol, num_scaffold_atoms):
     # Final Sanitization attempt
     try:
         Chem.SanitizeMol(rw_mol)
-    except:
+    except Exception:
         pass
 
     return rw_mol.GetMol()

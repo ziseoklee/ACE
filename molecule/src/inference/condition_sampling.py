@@ -13,6 +13,7 @@ from rdkit.Chem import Mol
 from configs.config_sampler import _BaseSamplerConfig
 from inference.sampling_runtime import SamplingRuntime, seed_everything
 from postprocessing import MoleculeBuilder
+from postprocessing.topology import replace_mol_topology_by_fragment
 from sampling.moe_layout import EDM_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX, CrossDockedMoELayout, CrossDockedMoEMasks
 from sampling.path_factory import (
     build_diffsbdd_ligand_path,
@@ -23,7 +24,6 @@ from sampling.path_factory import (
 )
 from sampling.probability_path import MoEProbabilityPath
 from sampling.sampler import InterleaveFn, MoEPDESampler, PostprocessFn
-from utils.inference_utils import replace_mol_topology_by_fragment
 
 logger = logging.getLogger(__name__)
 
