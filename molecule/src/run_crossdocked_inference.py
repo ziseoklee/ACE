@@ -206,7 +206,7 @@ def _write_molecule_samples(samples: Sequence[Mol | None], save_dir: Path, prefi
                 writer.close()
 
 
-@hydra.main(config_path="./configs", config_name="crossdocked_inference", version_base=None)
+@hydra.main(config_path="configs", config_name="crossdocked_inference", version_base=None)
 def main(cfg: DictConfig) -> None:
     if cfg.get("output_dir") is not None:
         output_dir = Path(cfg.output_dir)

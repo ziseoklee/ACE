@@ -18,7 +18,9 @@ dependencies = [
 ]
 
 [project.scripts]
-evaluate = "evaluation.cli:main"
+ace-infer = "run_inference:main"
+ace-crossdocked-infer = "run_crossdocked_inference:main"
+ace-evaluate = "evaluation.cli:main"
 
 [dependency-groups]
 experts = [

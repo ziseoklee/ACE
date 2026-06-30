@@ -81,7 +81,7 @@ def run_inference(cfg: DictConfig, output_dir: Path) -> None:
     logger.info("Inference and postprocessing completed successfully.")
 
 
-@hydra.main(config_path="./configs", config_name="inference", version_base=None)
+@hydra.main(config_path="configs", config_name="inference", version_base=None)
 def main(cfg: DictConfig) -> None:
     if cfg.get("output_dir") is not None:
         output_dir = Path(cfg.output_dir)
