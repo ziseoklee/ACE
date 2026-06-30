@@ -86,6 +86,7 @@ class GeoDiffExpert(MoEExpertABC):
         model = get_model(ckpt["config"].model)
         model.load_state_dict(ckpt["model"], strict=True)
         model.to(device)
+        model.eval()
 
         n_params = sum(p.numel() for p in model.parameters())
         logger.info("GeoDiff model loaded with %d parameters", n_params)

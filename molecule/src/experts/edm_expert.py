@@ -73,6 +73,7 @@ class EDMExpert(MoEExpertABC):
         ckpt = torch.load(EDM_CKPT_PATH, map_location=device, weights_only=True)
         model.load_state_dict(ckpt, strict=True)
         model.to(device)
+        model.eval()
 
         n_params = sum(p.numel() for p in model.parameters())
         logger.info("EDM model loaded with %d parameters", n_params)

@@ -62,6 +62,7 @@ class DiffSBDDExpert(MoEExpertABC):
         with redirect_output_to_logger(logger):
             model = LigandPocketDDPM.load_from_checkpoint(DIFFSBDD_CKPT_PATH, map_location=device, weights_only=False)
         model.to(device)
+        model.eval()
 
         n_params = sum(p.numel() for p in model.parameters())
         logger.info("DiffSBDD model loaded with %d parameters", n_params)
