@@ -1,11 +1,10 @@
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from typing import Protocol
 
 import torch
 from jaxtyping import Bool, Float
-
-from sampling.scheduler import SchedulerABC
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +17,16 @@ ExponentFunctionType = Callable[[Float[torch.Tensor, "B 1"]], Float[torch.Tensor
 DataMask = Bool[torch.Tensor, "data"]  # noqa: F821
 SCORE_CLAMP_MAGNITUDE = 20.0  # ! IMPORTANT: clamp score function to avoid numerical instability near t=0 or t=1
 CacheKeyType = tuple[int, int, int, int, tuple[int, ...], tuple[int, ...], torch.device, torch.device]
+
+
+class SDEScheduler(Protocol):
+    def drift_coeff(
+        self,
+        t: Float[torch.Tensor, "B 1"],
+        x: Float[torch.Tensor, "B data"],
+    ) -> Float[torch.Tensor, "B data"]: ...
+
+    def diffusion_coeff(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]: ...
 
 
 class ProbabilityPathABC(ABC):
@@ -47,7 +56,7 @@ class ProbabilityPath(ProbabilityPathABC):
 
     def __init__(
         self,
-        scheduler: SchedulerABC,
+        scheduler: SDEScheduler,
         score_model: ScoreFunctionType,
         reverse: bool = True,
     ):
@@ -161,7 +170,7 @@ class PaddedProbabilityPath(ProbabilityPathABC):
 class MoEProbabilityPath(ProbabilityPathABC):
     def __init__(
         self,
-        scheduler: SchedulerABC,  # global noise schedule for MoE path, can be different from individual paths' schedulers
+        scheduler: SDEScheduler,  # global noise schedule for MoE path, can be different from individual paths' schedulers
         q_list: list["PaddedProbabilityPath"],
         mask_list: list[DataMask],
         exponent_list: list[ExponentFunctionType],

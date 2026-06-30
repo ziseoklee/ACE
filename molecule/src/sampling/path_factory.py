@@ -3,10 +3,9 @@ from typing import Protocol
 import torch
 from jaxtyping import Bool, Float
 
-from sampling.distributions import PointMassDistribution
+from sampling.distributions import MarginalScheduler, PointMassDistribution
 from sampling.moe_layout import CrossDockedMoEMasks
-from sampling.probability_path import PaddedProbabilityPath, ProbabilityPath
-from sampling.scheduler import SchedulerABC
+from sampling.probability_path import PaddedProbabilityPath, ProbabilityPath, SDEScheduler
 
 DataMask = Bool[torch.Tensor, "data"]  # noqa: F821
 DataVector = Float[torch.Tensor, "data"]  # noqa: F821
@@ -22,6 +21,10 @@ class ScoringExpert(Protocol):
         t: Float[torch.Tensor, "B 1"],
         x: Float[torch.Tensor, "B data"],
     ) -> Float[torch.Tensor, "B data"]: ...
+
+
+class PaddedPathScheduler(SDEScheduler, MarginalScheduler, Protocol):
+    pass
 
 
 def make_zero_auxiliary_point(
@@ -43,7 +46,7 @@ def make_zero_auxiliary_point(
 def build_padded_expert_path(
     *,
     expert: ScoringExpert,
-    scheduler: SchedulerABC,
+    scheduler: PaddedPathScheduler,
     active_mask: DataMask,
     auxiliary_mask: DataMask,
     auxiliary_point: AuxiliaryPoint,
@@ -68,7 +71,7 @@ def build_padded_expert_path(
 def build_geodiff_fragment_path(
     *,
     expert: ScoringExpert,
-    scheduler: SchedulerABC,
+    scheduler: PaddedPathScheduler,
     masks: CrossDockedMoEMasks,
     atom_type_and_charge_point: FragmentFeatureMatrix,
     device: str,
@@ -87,7 +90,7 @@ def build_geodiff_fragment_path(
 def build_edm_fragment_path(
     *,
     expert: ScoringExpert,
-    scheduler: SchedulerABC,
+    scheduler: PaddedPathScheduler,
     masks: CrossDockedMoEMasks,
     padding_point: FragmentFeatureMatrix,
     device: str,
@@ -106,7 +109,7 @@ def build_edm_fragment_path(
 def build_edm_ligand_path(
     *,
     expert: ScoringExpert,
-    scheduler: SchedulerABC,
+    scheduler: PaddedPathScheduler,
     masks: CrossDockedMoEMasks,
     padding_point: LigandFeatureMatrix,
     device: str,
@@ -125,7 +128,7 @@ def build_edm_ligand_path(
 def build_diffsbdd_ligand_path(
     *,
     expert: ScoringExpert,
-    scheduler: SchedulerABC,
+    scheduler: PaddedPathScheduler,
     masks: CrossDockedMoEMasks,
     padding_point: LigandFeatureMatrix,
     device: str,
