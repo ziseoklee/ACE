@@ -1,10 +1,7 @@
-import argparse
-import json
 import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any
 
 from rdkit import Chem
 from rdkit.Chem import QED, Descriptors, Lipinski, RDConfig
@@ -51,21 +48,6 @@ def load_ligand_sdf(ligand_sdf: Path) -> Mol | None:
     return supplier[0] if len(supplier) > 0 else None
 
 
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--ligand_sdf", type=Path, required=True)
-    parser.add_argument("--output_json", type=Path, default=None)
-    args = parser.parse_args(argv)
-
-    result: dict[str, Any] = {"ligand_sdf": str(args.ligand_sdf)}
-    result.update(evaluate_ligand_sdf(args.ligand_sdf))
-    payload = json.dumps(result, indent=2, sort_keys=True)
-    if args.output_json is not None:
-        args.output_json.parent.mkdir(parents=True, exist_ok=True)
-        args.output_json.write_text(payload + "\n")
-    print(payload)
-
-
 def _safe_float(fn) -> float:
     try:
         return float(fn())
@@ -99,7 +81,3 @@ def _safe_lipinski_score(mol: Mol, logp: float) -> float:
         return (5 - violations) / 5.0
     except Exception:
         return 0.0
-
-
-if __name__ == "__main__":
-    main()

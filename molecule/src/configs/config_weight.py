@@ -120,30 +120,3 @@ class ACEBumpWeightConfig(_BaseWeightConfig):
             return self.omega + (self.B1 * Q_t + self.B2 * L_t)
 
         self.weight_function = _ace_bump_weight
-
-
-if __name__ == "__main__":
-    # --- 사용 예시 ---
-    config = ConstantWeightConfig(omega=2.5)
-
-    print(config.name)  # 출력: ConstantWeight_2.5
-    print(config.weight_function(torch.tensor([0.1, 0.5])))  # 출력: tensor([2.5000, 2.5000])
-
-    # LinearIncreasingWeightConfig 예시
-    linear_config = LinearIncreasingWeightConfig(omega=1.0, slope=2.0)
-    print(linear_config.name)  # 출력: LinearIncreasingWeight_1.0*2.0*t
-    print(linear_config.weight_function(torch.tensor([0.1, 0.5])))  # 출력: tensor([0.2000, 1.0000]) -> 1.0 * 2.0 * t
-
-    # LinearDecreasingWeightConfig 예시
-    decreasing_config = LinearDecreasingWeightConfig(omega=1.0, slope=2.0)
-    print(decreasing_config.name)  # 출력: LinearDecreasingWeight_1.0*2.0*(1-t)
-    print(
-        decreasing_config.weight_function(torch.tensor([0.1, 0.5]))
-    )  # 출력: tensor([1.8000, 1.0000]) -> 1.0 * 2.0 * (1 - t)
-
-    # LambdaBumpWeightConfig 예시
-    bump_config = LambdaBumpWeightConfig(omega=1.0, slope=2.0)
-    print(bump_config.name)  # 출력: LambdaBumpWeight_1.0*2.0*(1-abs(2*t-1))
-    print(
-        bump_config.weight_function(torch.tensor([0.0, 0.25, 0.5, 0.75, 1.0]))
-    )  # 출력: tensor([0.0000, 1.0000, 2.0000, 1.0000, 0.0000]) -> 1.0 * 2.0 * (1 - abs(2*t-1))

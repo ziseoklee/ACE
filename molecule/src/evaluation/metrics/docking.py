@@ -1,5 +1,3 @@
-import argparse
-import json
 from pathlib import Path
 from typing import Any
 
@@ -70,42 +68,6 @@ def evaluate_docking_sdf(
     )
 
 
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--pocket_pdb", type=Path, required=True)
-    parser.add_argument("--ligand_sdf", type=Path, required=True)
-    parser.add_argument("--ref_ligand_sdf", type=Path, default=None)
-    parser.add_argument("--exhaustiveness", type=int, default=8)
-    parser.add_argument("--num_modes", type=int, default=9)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--pad", type=float, default=8.0)
-    parser.add_argument("--output_json", type=Path, default=None)
-    args = parser.parse_args(argv)
-
-    result = {
-        "pocket_pdb": str(args.pocket_pdb),
-        "ligand_sdf": str(args.ligand_sdf),
-        "ref_ligand_sdf": str(args.ref_ligand_sdf) if args.ref_ligand_sdf is not None else None,
-    }
-    result.update(
-        evaluate_docking_sdf(
-            args.pocket_pdb,
-            args.ligand_sdf,
-            ref_ligand_sdf=args.ref_ligand_sdf,
-            exhaustiveness=args.exhaustiveness,
-            num_modes=args.num_modes,
-            seed=args.seed,
-            pad=args.pad,
-        )
-    )
-
-    payload = json.dumps(result, indent=2, sort_keys=True)
-    if args.output_json is not None:
-        args.output_json.parent.mkdir(parents=True, exist_ok=True)
-        args.output_json.write_text(payload + "\n")
-    print(payload)
-
-
 def _failed_docking_result(error: str) -> dict[str, Any]:
     return {
         "docking_success": 0.0,
@@ -114,7 +76,3 @@ def _failed_docking_result(error: str) -> dict[str, Any]:
         "qvina_cmd": "",
         "docking_error": error,
     }
-
-
-if __name__ == "__main__":
-    main()

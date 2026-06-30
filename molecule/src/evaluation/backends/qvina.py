@@ -1,4 +1,3 @@
-import argparse
 import logging
 import re
 import subprocess
@@ -11,16 +10,6 @@ from rdkit.Chem.rdchem import Mol
 
 PATH_QVINA2 = Path(__file__).parents[2] / "lib" / "qvina2" / "qvina02"
 logger = logging.getLogger(__name__)
-
-
-def parse_args(argv):
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--pdb_path", type=str, required=True)
-    parser.add_argument("--ligand_dir", type=str, required=True)
-    parser.add_argument("--num_samples", type=int, required=True)
-    parser.add_argument("--prefix", type=str, default="")
-    parser.add_argument("--postfix", type=str, default="")
-    return parser.parse_args(argv)
 
 
 # ----------------- Data classes (aligned to your Gnina style) -----------------
@@ -292,47 +281,3 @@ def qvina_score_from_mol(
             pose_mols=pose_mols,
             best_mol=best_mol,
         )
-
-
-def main(argv):
-    args = parse_args(argv)
-    pdb_path = args.pdb_path
-    ligand_dir = args.ligand_dir
-    num_samples = args.num_samples
-    prefix = args.prefix
-    postfix = args.postfix
-    for i in range(num_samples):
-        sample = None
-        try:
-            sample = list(Chem.SDMolSupplier(f"{ligand_dir}/{prefix}{i}{postfix}.sdf"))[0]
-            # breakpoint()
-            res = qvina_score_from_mol(pdb_path, sample)
-            # breakpoint()
-            print(f"{i} len: {sample.GetNumAtoms()}: {res.best.affinity}")
-        except Exception:
-            sample_smiles = Chem.MolToSmiles(sample) if sample is not None else ""
-            sample_num_atoms = sample.GetNumAtoms() if sample is not None else 0
-            print(f"{i} len: {sample_num_atoms}: {sample_smiles}")
-
-
-# ------------------------------ Example usage -------------------------------
-
-if __name__ == "__main__":
-    # Minimal demo (requires: qvina2, obabel, meeko)
-    # 1) Load/prepare ligand with 3D
-    smi = "c1ccccc1O"  # phenol
-    lig = Chem.MolFromSmiles(smi)
-    lig = Chem.AddHs(lig)
-    from rdkit.Chem import AllChem
-
-    AllChem.EmbedMolecule(lig, AllChem.ETKDG())
-    AllChem.UFFOptimizeMolecule(lig)
-
-    # 2) Run docking
-    # Replace with your protein path:
-    protein_pdb = "/path/to/protein.pdb"
-    # result = qvina_score_from_mol(protein_pdb, lig)
-    # print("CMD:", result.cmd)
-    # print("Best:", result.best)
-    # print(json.dumps([p.__dict__ for p in result.poses], indent=2))
-    pass
