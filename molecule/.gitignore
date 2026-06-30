@@ -1,6 +1,6 @@
 uv.lock
 
-!/lib
+!/src/lib
 /logs*
 /results*
 outputs/
