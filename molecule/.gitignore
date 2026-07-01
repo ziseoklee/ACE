@@ -4,3 +4,4 @@ uv.lock
 /logs*
 /results*
 outputs/
+tmp/crossdocked_peek/
