@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 from rdkit import Chem
-from rdkit.Chem import QED, Descriptors, Lipinski, RDConfig
+from rdkit.Chem import QED, RDConfig, rdMolDescriptors
 from rdkit.Chem.rdchem import Mol
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ def evaluate_druglikeness(mol: Mol | None) -> dict[str, float]:
 
     scores["QED"] = _safe_float(lambda: QED.qed(mol_copy))
     scores["SA"] = _safe_sa_score(mol_copy)
-    scores["LogP"] = _safe_float(lambda: Descriptors.MolLogP(mol_copy))
+    scores["LogP"] = _safe_float(lambda: rdMolDescriptors.CalcCrippenDescriptors(mol_copy)[0])
     scores["Lipinski"] = _safe_lipinski_score(mol_copy, scores["LogP"])
     return scores
 
@@ -74,10 +74,10 @@ def _safe_lipinski_score(mol: Mol, logp: float) -> float:
     # MW <= 500, LogP <= 5, HBD <= 5, HBA <= 10
     try:
         violations = 0
-        violations += int(Descriptors.MolWt(mol) > 500)
+        violations += int(rdMolDescriptors._CalcMolWt(mol) > 500)
         violations += int(logp > 5)
-        violations += int(Lipinski.NumHDonors(mol) > 5)
-        violations += int(Lipinski.NumHAcceptors(mol) > 10)
+        violations += int(rdMolDescriptors.CalcNumHBD(mol) > 5)
+        violations += int(rdMolDescriptors.CalcNumHBA(mol) > 10)
         return (5 - violations) / 5.0
     except Exception:
         return 0.0
