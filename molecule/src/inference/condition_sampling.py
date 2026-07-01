@@ -14,7 +14,7 @@ from configs.config_sampler import _BaseSamplerConfig
 from inference.sampling_runtime import SamplingRuntime, seed_everything
 from postprocessing import MoleculeBuilder
 from postprocessing.topology import replace_mol_topology_by_fragment
-from sampling.moe_layout import EDM_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX, CrossDockedMoELayout, CrossDockedMoEMasks
+from sampling.moe_layout import _EDM_QM9_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX, CrossDockedMoELayout, CrossDockedMoEMasks
 from sampling.path_factory import (
     build_diffsbdd_ligand_path,
     build_edm_fragment_path,
@@ -64,7 +64,7 @@ def build_condition_probability_path(
     batch_size = sampler_cfg.batch_size
     num_ligand_atoms = condition.ref_ligand.GetNumAtoms()
     num_fragment_atoms = condition.fragment.GetNumAtoms()
-    edm2sbdd_atoms = EDM_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX
+    edm2sbdd_atoms = _EDM_QM9_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX
 
     masks = CrossDockedMoELayout(
         fragment_size=num_fragment_atoms,
@@ -102,17 +102,17 @@ def build_condition_probability_path(
     fragment_atom_types = fragment_h[:, :-1].argmax(dim=-1)
     fragment_atom_types = torch.tensor([edm2sbdd_atoms[int(v.item())] for v in fragment_atom_types], device=device)
 
-    geodiff_atom_type_point = make_zero_auxiliary_point(
+    geodiff_atom_feature_point = make_zero_auxiliary_point(
         num_fragment_atoms,
-        masks.geodiff_fragment_atom_types_and_charge,
+        masks.geodiff_fragment_atom_features,
         device=device,
     )
-    geodiff_atom_type_point[:, list(edm2sbdd_atoms.values()) + [-1]] = fragment_h.to(device=device)
+    geodiff_atom_feature_point[:, list(edm2sbdd_atoms.values()) + [-1]] = fragment_h.to(device=device)
     q_geodiff_pad = build_geodiff_fragment_path(
         expert=runtime.geodiff,
         scheduler=runtime.scheduler_geodiff,
         masks=masks,
-        atom_type_and_charge_point=geodiff_atom_type_point,
+        atom_feature_point=geodiff_atom_feature_point,
         device=device,
     )
 

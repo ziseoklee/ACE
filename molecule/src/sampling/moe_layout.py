@@ -21,33 +21,37 @@ ATOM_TYPE_INDEX: Final = {
     "H": 10,
 }
 ATOM_TYPE_DIM: Final = len(ATOM_TYPE_INDEX)
-CHARGE_DIM: Final = 1
-ALL_DIM: Final = COORDS_DIM + ATOM_TYPE_DIM + CHARGE_DIM
+NUCLEAR_CHARGE_FEATURE_DIM: Final = 1
+NODE_FEATURE_DIM: Final = COORDS_DIM + ATOM_TYPE_DIM + NUCLEAR_CHARGE_FEATURE_DIM
 
-EDM_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX: Final = {
+NUCLEAR_CHARGE_FEATURE_COLUMN: Final = NODE_FEATURE_DIM - 1
+
+_DIFFSBDD_CROSSDOCKED_ACTIVE_ATOMS: Final = ("C", "N", "O", "S", "B", "Br", "Cl", "P", "I", "F")
+_DIFFSBDD_CROSSDOCKED_ACTIVE_COLUMNS: Final = tuple(range(COORDS_DIM)) + tuple(
+    COORDS_DIM + ATOM_TYPE_INDEX[atom] for atom in _DIFFSBDD_CROSSDOCKED_ACTIVE_ATOMS
+)
+_DIFFSBDD_CROSSDOCKED_PADDING_COLUMNS: Final = (
+    COORDS_DIM + ATOM_TYPE_INDEX["H"],
+    NUCLEAR_CHARGE_FEATURE_COLUMN,
+)
+
+_EDM_QM9_ACTIVE_ATOMS: Final = ("H", "C", "N", "O", "F")
+_EDM_QM9_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX: Final = {
     0: ATOM_TYPE_INDEX["H"],
     1: ATOM_TYPE_INDEX["C"],
     2: ATOM_TYPE_INDEX["N"],
     3: ATOM_TYPE_INDEX["O"],
     4: ATOM_TYPE_INDEX["F"],
 }
-
-_GEODIFF_ACTIVE_COLUMNS: Final = tuple(range(COORDS_DIM))
-_GEODIFF_PADDING_COLUMNS: Final = tuple(range(COORDS_DIM, ALL_DIM))
-_DIFFSBDD_ACTIVE_ATOMS: Final = ("C", "N", "O", "S", "B", "Br", "Cl", "P", "I", "F")
-_DIFFSBDD_ACTIVE_COLUMNS: Final = tuple(range(COORDS_DIM)) + tuple(
-    COORDS_DIM + ATOM_TYPE_INDEX[atom] for atom in _DIFFSBDD_ACTIVE_ATOMS
-)
-_DIFFSBDD_PADDING_COLUMNS: Final = (
-    COORDS_DIM + ATOM_TYPE_INDEX["H"],
-    ALL_DIM - 1,
-)
-_EDM_ACTIVE_COLUMNS: Final = (
+_EDM_QM9_ACTIVE_COLUMNS: Final = (
     tuple(range(COORDS_DIM))
-    + tuple(COORDS_DIM + atom_index for atom_index in EDM_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX.values())
-    + (ALL_DIM - 1,)
+    + tuple(COORDS_DIM + atom_index for atom_index in _EDM_QM9_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX.values())
+    + (NUCLEAR_CHARGE_FEATURE_COLUMN,)
 )
-_EDM_PADDING_COLUMNS: Final = tuple(i for i in range(ALL_DIM) if i not in _EDM_ACTIVE_COLUMNS)
+_EDM_QM9_PADDING_COLUMNS: Final = tuple(i for i in range(NODE_FEATURE_DIM) if i not in _EDM_QM9_ACTIVE_COLUMNS)
+
+_GEODIFF_QM9_COORD_COLUMNS: Final = tuple(range(COORDS_DIM))
+_GEODIFF_QM9_AUXILIARY_FEATURE_COLUMNS: Final = tuple(range(COORDS_DIM, NODE_FEATURE_DIM))
 
 
 @dataclass(frozen=True)
@@ -55,7 +59,7 @@ class CrossDockedMoEMasks:
     """Boolean masks describing how each expert views the shared MoE latent."""
 
     geodiff_fragment_coords: DataMask
-    geodiff_fragment_atom_types_and_charge: DataMask
+    geodiff_fragment_atom_features: DataMask
     edm_fragment_xh: DataMask
     edm_fragment_padding: DataMask
     diffsbdd_ligand_xh: DataMask
@@ -87,25 +91,28 @@ class CrossDockedMoELayout:
             raise ValueError("fragment_size cannot exceed ligand_size.")
 
     def masks(self) -> CrossDockedMoEMasks:
-        geodiff_fragment_coords = self._node_mask(self.fragment_size, range(COORDS_DIM))
-        geodiff_fragment_atom_types_and_charge = self._node_mask(self.fragment_size, range(COORDS_DIM, ALL_DIM))
+        geodiff_fragment_coords = self._node_mask(self.fragment_size, _GEODIFF_QM9_COORD_COLUMNS)
+        geodiff_fragment_atom_features = self._node_mask(
+            self.fragment_size,
+            _GEODIFF_QM9_AUXILIARY_FEATURE_COLUMNS,
+        )
 
-        edm_fragment_xh = self._node_mask(self.fragment_size, _EDM_ACTIVE_COLUMNS)
+        edm_fragment_xh = self._node_mask(self.fragment_size, _EDM_QM9_ACTIVE_COLUMNS)
         edm_fragment_padding = ~edm_fragment_xh
 
-        diffsbdd_ligand_xh = self._node_mask(self.ligand_size, _DIFFSBDD_ACTIVE_COLUMNS)
-        diffsbdd_ligand_padding = self._node_mask(self.ligand_size, _DIFFSBDD_PADDING_COLUMNS)
+        diffsbdd_ligand_xh = self._node_mask(self.ligand_size, _DIFFSBDD_CROSSDOCKED_ACTIVE_COLUMNS)
+        diffsbdd_ligand_padding = self._node_mask(self.ligand_size, _DIFFSBDD_CROSSDOCKED_PADDING_COLUMNS)
 
-        edm_ligand_xh = self._node_mask(self.ligand_size, _EDM_ACTIVE_COLUMNS)
+        edm_ligand_xh = self._node_mask(self.ligand_size, _EDM_QM9_ACTIVE_COLUMNS)
         edm_ligand_padding = ~edm_ligand_xh
 
-        fragment_state_in_ligand = torch.zeros(self.ligand_size, ALL_DIM, dtype=torch.bool, device=self.device)
+        fragment_state_in_ligand = torch.zeros(self.ligand_size, NODE_FEATURE_DIM, dtype=torch.bool, device=self.device)
         fragment_state_in_ligand[: self.fragment_size, :] = True
-        ligand_state = torch.ones(self.ligand_size, ALL_DIM, dtype=torch.bool, device=self.device)
+        ligand_state = torch.ones(self.ligand_size, NODE_FEATURE_DIM, dtype=torch.bool, device=self.device)
 
         return CrossDockedMoEMasks(
             geodiff_fragment_coords=geodiff_fragment_coords,
-            geodiff_fragment_atom_types_and_charge=geodiff_fragment_atom_types_and_charge,
+            geodiff_fragment_atom_features=geodiff_fragment_atom_features,
             edm_fragment_xh=edm_fragment_xh,
             edm_fragment_padding=edm_fragment_padding,
             diffsbdd_ligand_xh=diffsbdd_ligand_xh,
@@ -117,6 +124,6 @@ class CrossDockedMoELayout:
         )
 
     def _node_mask(self, num_nodes: int, columns: range | tuple[int, ...]) -> DataMask:
-        mask = torch.zeros(num_nodes, ALL_DIM, dtype=torch.bool, device=self.device)
+        mask = torch.zeros(num_nodes, NODE_FEATURE_DIM, dtype=torch.bool, device=self.device)
         mask[:, list(columns)] = True
         return mask.flatten()

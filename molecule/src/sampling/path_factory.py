@@ -73,7 +73,7 @@ def build_geodiff_fragment_path(
     expert: ScoringExpert,
     scheduler: PaddedPathScheduler,
     masks: CrossDockedMoEMasks,
-    atom_type_and_charge_point: FragmentFeatureMatrix,
+    atom_feature_point: FragmentFeatureMatrix,
     device: str,
 ) -> PaddedProbabilityPath:
     """Build the GeoDiff fragment coordinate path with fixed fragment atom types."""
@@ -81,8 +81,8 @@ def build_geodiff_fragment_path(
         expert=expert,
         scheduler=scheduler,
         active_mask=masks.geodiff_fragment_coords,
-        auxiliary_mask=masks.geodiff_fragment_atom_types_and_charge,
-        auxiliary_point=atom_type_and_charge_point,
+        auxiliary_mask=masks.geodiff_fragment_atom_features,
+        auxiliary_point=atom_feature_point,
         device=device,
     )
 
