@@ -14,7 +14,8 @@ def molecule_to_topology_png(
 ) -> bytes:
     """Render a 2D topology PNG for an RDKit molecule."""
     mol_to_draw = Chem.Mol(mol)
-    AllChem.Compute2DCoords(mol_to_draw)
+    # Source ref: https://github.com/rdkit/rdkit/blob/master/Code/GraphMol/Depictor/Wrap/rdDepictor.cpp#L359
+    AllChem.Compute2DCoords(mol_to_draw)  # type: ignore
 
     drawer = rdMolDraw2D.MolDraw2DCairo(width, height)
     options = drawer.drawOptions()
