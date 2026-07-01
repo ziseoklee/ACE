@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import torch
 from e3_diffusion_for_molecules.configs.datasets_config import get_dataset_info
 from e3_diffusion_for_molecules.equivariant_diffusion.en_diffusion import EnVariationalDiffusion
-from e3_diffusion_for_molecules.equivariant_diffusion.utils import assert_mean_zero_with_mask, remove_mean_with_mask
+from e3_diffusion_for_molecules.equivariant_diffusion.utils import remove_mean_with_mask
 from e3_diffusion_for_molecules.qm9.models import get_model
 from jaxtyping import Bool, Float
 
@@ -26,14 +26,8 @@ DataMask = Bool[torch.Tensor, "data"]  # noqa: F821
 
 @dataclass
 class EDMInferenceContext:
-    model: EnVariationalDiffusion
-    batch_size: int
     node_mask: Float[torch.Tensor, "B L 1"]
     edge_mask: Float[torch.Tensor, "B_L_L 1"]  # flattened from (B, L, L)
-    context: None
-    max_n_nodes: int
-    device: str
-    z: Float[torch.Tensor, "B data"]
     data_shape: tuple[int, ...]
 
 
@@ -99,27 +93,11 @@ class EDMExpert(MoEExpertABC):
         )
 
         node_mask_3d: Float[torch.Tensor, "B L 1"] = node_mask.unsqueeze(2).to(self.device)
-
-        z: Float[torch.Tensor, "B L feature"] = self.model.sample_combined_position_feature_noise(
-            batch_size,
-            num_nodes,
-            node_mask_3d,
-        )
-        n_dims = self.model.n_dims
-        assert_mean_zero_with_mask(z[:, :, :n_dims], node_mask_3d)
-
-        data_shape = z.shape
-        z_flat: Float[torch.Tensor, "B data"] = z.reshape(batch_size, -1)
+        data_shape = (batch_size, num_nodes, self.model.n_dims + self.model.in_node_nf)
 
         prepared_data = {
-            "model": self.model,  # todo; remove this later
-            "batch_size": batch_size,  # todo; remove this later
             "node_mask": node_mask_3d,
             "edge_mask": edge_mask_flat,
-            "context": None,  # todo; remove this later
-            "max_n_nodes": self._EDM_MAX_NODES,  # todo; remove this later
-            "device": self.device,  # todo; remove this later
-            "z": z_flat,
             "data_shape": data_shape,
         }
         # Store the prepared data for inference
@@ -135,7 +113,6 @@ class EDMExpert(MoEExpertABC):
         model = self.model
         node_mask = self._inference_context.node_mask
         edge_mask = self._inference_context.edge_mask
-        context = self._inference_context.context
         data_shape = self._inference_context.data_shape
         curr_shape = x.shape
         batch_size = x.shape[0]
@@ -154,7 +131,7 @@ class EDMExpert(MoEExpertABC):
         sigma_t = model.sigma(gamma_t, target_tensor=x)
 
         # Neural net prediction.
-        eps_t = model.phi(x, t_array, node_mask, edge_mask, context)
+        eps_t = model.phi(x, t_array, node_mask, edge_mask, context=None)
         score = -eps_t / sigma_t
         score = torch.cat(
             [

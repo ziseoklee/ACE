@@ -10,6 +10,8 @@ from torch.distributions import Normal
 from tqdm import tqdm
 
 from configs.config_sampler import _BaseSamplerConfig
+from experts.base_expert import SBDDExpert
+from sampling.moe_layout import COORDS_DIM, NODE_FEATURE_DIM
 from sampling.probability_path import MoEProbabilityPath
 
 logger = logging.getLogger(__name__)
@@ -82,7 +84,7 @@ class MoEPDESampler:
     @staticmethod
     def initialize_particles(
         moe_probability_path: MoEProbabilityPath,
-        prior_sbdd: ParticleState,
+        sbdd_expert: SBDDExpert,
         batch_size: int,
         device: str,
         generator: torch.Generator,
@@ -91,24 +93,58 @@ class MoEPDESampler:
         Initialize x0, logq, and log weights tensor for the sampler.
         """
         sample_size: int = moe_probability_path.sample_size
-        x0: ParticleState = torch.randn(
+        x0_raw: ParticleState = torch.randn(
             batch_size,
             sample_size,
             generator=generator,
             device=device,
         ).to(device)
-        # !WARNING!: we assume the 4th expert is the DiffSBDD expert.
-        mask_sbdd = moe_probability_path.q_list[3].mask_list[0]
-        x0[..., mask_sbdd] = prior_sbdd
 
         standard_normal_dist = Normal(loc=0.0, scale=1.0)
-        logq = standard_normal_dist.log_prob(x0)
+        logq = standard_normal_dist.log_prob(x0_raw)
         num_experts = len(moe_probability_path.q_list)
         logq: ExpertLogQ = logq.sum(dim=-1, keepdim=True).repeat(1, num_experts).unsqueeze(2)
+
+        x0 = MoEPDESampler.translate_particles_to_pocket_conditioned_frame(
+            x=x0_raw,
+            sbdd_expert=sbdd_expert,
+            batch_size=batch_size,
+            device=device,
+        )
 
         logweight: ParticleLogWeight = torch.zeros(batch_size, device=device)
 
         return x0, logq, logweight
+
+    @staticmethod
+    def translate_particles_to_pocket_conditioned_frame(
+        x: ParticleState,
+        sbdd_expert: SBDDExpert,
+        batch_size: int,
+        device: str,
+    ) -> ParticleState:
+        """Place Gaussian ligand coordinates around the pocket COM, then keep the ligand-centered frame."""
+        xh_pocket = sbdd_expert.get_current_pocket_xh().to(device=device)
+        if x.shape[0] != batch_size:
+            raise ValueError(f"Particle batch size must be {batch_size}, got {x.shape[0]}.")
+        if x.shape[1] % NODE_FEATURE_DIM != 0:
+            raise ValueError(
+                "MoE sample size must be divisible by NODE_FEATURE_DIM to initialize pocket-conditioned particles: "
+                f"{x.shape[1]} % {NODE_FEATURE_DIM} != 0."
+            )
+
+        xh_lig = x.reshape(batch_size, -1, NODE_FEATURE_DIM)
+        pocket_com = xh_pocket[:, :, :COORDS_DIM].mean(dim=1)
+
+        xh_lig[:, :, :COORDS_DIM] += pocket_com[:, None, :].to(dtype=xh_lig.dtype)
+
+        ligand_com = xh_lig[:, :, :COORDS_DIM].mean(dim=1)
+        xh_lig[:, :, :COORDS_DIM] -= ligand_com[:, None, :]
+        xh_pocket = xh_pocket.clone()
+        xh_pocket[:, :, :COORDS_DIM] -= ligand_com[:, None, :].to(dtype=xh_pocket.dtype)
+        sbdd_expert.set_current_pocket_xh(xh_pocket)
+
+        return xh_lig.reshape(batch_size, -1)
 
     @classmethod
     @computation_overhead_logger
@@ -116,7 +152,7 @@ class MoEPDESampler:
         cls,
         moe_probability_path: MoEProbabilityPath,
         sampler_cfg: _BaseSamplerConfig,
-        prior_sbdd: ParticleState,
+        sbdd_expert: SBDDExpert,
         interleave_fns: list[InterleaveFn] | None = None,
         postprocess_fns: list[PostprocessFn] | None = None,
     ) -> tuple[ParticleState, StateTrajectory, LogWeightTrajectory, LogQTrajectory, ChoicesTrajectory]:
@@ -146,7 +182,7 @@ class MoEPDESampler:
         # Initializations
         x, logq_tensor, logweight_tensor = cls.initialize_particles(
             moe_probability_path=moe_probability_path,
-            prior_sbdd=prior_sbdd,
+            sbdd_expert=sbdd_expert,
             batch_size=batch_size,
             device=device,
             generator=generator,

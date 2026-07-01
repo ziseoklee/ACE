@@ -5,11 +5,11 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from jaxtyping import Float
 from rdkit import Chem
 from rdkit.Chem import Mol
 
 from configs.config_sampler import _BaseSamplerConfig
+from experts.base_expert import SBDDExpert
 from inference.sampling_runtime import SamplingRuntime, seed_everything
 from postprocessing import MoleculeBuilder
 from sampling.moe_layout import (
@@ -69,7 +69,7 @@ class ConditionProbabilityPath:
     path: MoEProbabilityPath
     masks: CrossDockedMoEMasks
     fragment_atom_types: torch.Tensor
-    prior_sbdd: Float[torch.Tensor, "B data"]
+    sbdd_expert: SBDDExpert
     interleave_fns: list[InterleaveFn]
     postprocess_fns: list[PostprocessFn]
 
@@ -188,7 +188,7 @@ def build_condition_probability_path(
         path=moe_probability_path,
         masks=masks,
         fragment_atom_types=fragment_atom_types,
-        prior_sbdd=runtime.diffsbdd._inference_context.z,
+        sbdd_expert=runtime.diffsbdd,
         interleave_fns=interleave_fns,
         postprocess_fns=postprocess_fns,
     )
@@ -210,7 +210,7 @@ def sample_condition(
         samples, _, logweight_trajectory, _, choices = MoEPDESampler.sample(
             condition_path.path,
             sampler_cfg,
-            prior_sbdd=condition_path.prior_sbdd,
+            sbdd_expert=condition_path.sbdd_expert,
             interleave_fns=condition_path.interleave_fns,
             postprocess_fns=condition_path.postprocess_fns,
         )

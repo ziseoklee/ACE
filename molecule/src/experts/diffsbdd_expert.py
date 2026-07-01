@@ -1,4 +1,5 @@
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,13 +13,13 @@ from rdkit import Chem
 from torch_scatter import scatter_add, scatter_mean
 
 from experts import PRETRAINED_MODEL_DIR
-from experts.base_expert import MoEExpertABC
+from experts.base_expert import MoEExpertABC, SBDDPocketType
 from utils.logging_utils import redirect_output_to_logger
 
 DIFFSBDD_SOURCE_DIR = PRETRAINED_MODEL_DIR / "DiffSBDD"
 DIFFSBDD_CKPT_PATH = DIFFSBDD_SOURCE_DIR / "checkpoints" / "crossdocked_fullatom_cond.ckpt"
 
-PathLike = Path | str
+PathLike = os.PathLike[str] | str
 
 
 logger = logging.getLogger(__name__)
@@ -26,15 +27,16 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DiffSBDDInferenceContext:
-    model: LigandPocketDDPM
-    num_samples: int
-    lig_mask: torch.Tensor
-    pocket: dict[str, torch.Tensor]
-    pocket_com_before: torch.Tensor
-    device: str
-    z: Float[torch.Tensor, "B data"]
-    xh_pocket: torch.Tensor
-    data_shape: tuple[int, ...]
+    """DiffSBDD-specific masks and shapes around the current batched pocket state."""
+
+    lig_mask: Float[torch.Tensor, "B*ligand_nodes"]  # noqa: F821
+    pocket_mask: Float[torch.Tensor, "B*pocket_nodes"]  # noqa: F821
+    xh_pocket: SBDDPocketType
+    initial_pocket_com: Float[torch.Tensor, "B coords"]
+    data_shape: tuple[
+        int, ...
+    ]  # DiffSBDD's internal data shape (B*L, D) where L is the number of nodes in the ligand and D is the feature dimension
+    batch_size: int
 
 
 class DiffSBDDExpert(MoEExpertABC):
@@ -85,33 +87,42 @@ class DiffSBDDExpert(MoEExpertABC):
 
         pocket = self.model.prepare_pocket(residues, repeats=batch_size)
         pocket: dict[str, torch.Tensor] = self.model.ddpm.normalize(pocket=pocket)[1]  # type: ignore
-        pocket_com_before = scatter_mean(pocket["x"], pocket["mask"], dim=0)
+        pocket_mask = pocket["mask"]
+        initial_pocket_com = scatter_mean(pocket["x"], pocket_mask, dim=0)
         xh0_pocket = torch.cat([pocket["x"], pocket["one_hot"]], dim=1)
-        mu_lig_x = scatter_mean(pocket["x"], pocket["mask"], dim=0)
-        mu_lig_h = torch.zeros((batch_size, self.model.ddpm.atom_nf), device=self.device)
-
         lig_mask = num_nodes_to_batch_mask(batch_size, num_nodes, device=self.device)
-        mu_lig = torch.cat([mu_lig_x, mu_lig_h], dim=1)[lig_mask]
-        sigma = torch.ones_like(pocket["size"]).unsqueeze(1)
-
-        z_lig, xh_pocket = self.model.ddpm.sample_normal_zero_com(mu_lig, xh0_pocket, sigma, lig_mask, pocket["mask"])
-        data_shape = z_lig.shape
-        z_lig = z_lig.reshape(batch_size, -1)
+        data_shape = (len(lig_mask), self.model.ddpm.n_dims + self.model.ddpm.atom_nf)
+        xh_pocket = xh0_pocket.view(batch_size, -1, xh0_pocket.shape[-1])
 
         prepared_data = {
-            "model": self.model,  # todo; remove this later
-            "num_samples": batch_size,  # todo; remove this later
             "lig_mask": lig_mask,
-            "pocket": pocket,
-            "pocket_com_before": pocket_com_before,
-            "device": self.device,  # todo; remove this later
-            "z": z_lig,
+            "pocket_mask": pocket_mask,
+            "initial_pocket_com": initial_pocket_com,
             "xh_pocket": xh_pocket,
             "data_shape": data_shape,
+            "batch_size": batch_size,
         }
         # Store the prepared data for inference
         self._inference_context = DiffSBDDInferenceContext(**prepared_data)  # type: ignore
         return prepared_data
+
+    def get_current_pocket_xh(self) -> SBDDPocketType:
+        return self._inference_context.xh_pocket
+
+    def set_current_pocket_xh(self, xh_pocket: SBDDPocketType) -> None:
+        if xh_pocket.ndim != 3:
+            raise ValueError(f"Expected pocket xh with shape (B, pocket_nodes, feature), got {tuple(xh_pocket.shape)}.")
+        if xh_pocket.shape[0] != self._inference_context.batch_size:
+            raise ValueError(
+                "Pocket xh batch size does not match DiffSBDD context: "
+                f"{xh_pocket.shape[0]} != {self._inference_context.batch_size}."
+            )
+        if xh_pocket.shape[1:] != self._inference_context.xh_pocket.shape[1:]:
+            raise ValueError(
+                "Pocket xh node/feature shape does not match DiffSBDD context: "
+                f"{tuple(xh_pocket.shape[1:])} != {tuple(self._inference_context.xh_pocket.shape[1:])}."
+            )
+        self._inference_context.xh_pocket = xh_pocket
 
     def score(
         self,
@@ -121,8 +132,8 @@ class DiffSBDDExpert(MoEExpertABC):
         # Implementation for scoring using the DiffSBDD expert
         model = self.model
         lig_mask = self._inference_context.lig_mask
-        pocket = self._inference_context.pocket
-        xh_pocket = self._inference_context.xh_pocket
+        pocket_mask = self._inference_context.pocket_mask
+        xh_pocket = self._flat_current_pocket_xh()
         data_shape = self._inference_context.data_shape
         batch_size = x.shape[0]
         curr_shape = x.shape
@@ -138,7 +149,7 @@ class DiffSBDDExpert(MoEExpertABC):
         gamma_t = model.ddpm.gamma(t_array)
         sigma_t = model.ddpm.sigma(gamma_t, target_tensor=x)
 
-        eps_t_lig, _ = model.ddpm.dynamics(x, xh_pocket, t_array, lig_mask, pocket["mask"])
+        eps_t_lig, _ = model.ddpm.dynamics(x, xh_pocket, t_array, lig_mask, pocket_mask)
         score = -eps_t_lig / sigma_t[lig_mask]
 
         return score.reshape(curr_shape)
@@ -157,29 +168,34 @@ class DiffSBDDExpert(MoEExpertABC):
         at zero, with the pocket shifted by the same translation.
         """
         lig_mask = self._inference_context.lig_mask
-        pocket = self._inference_context.pocket
-        xh_pocket = self._inference_context.xh_pocket
+        pocket_mask = self._inference_context.pocket_mask
         data_shape = self._inference_context.data_shape
-        batch_size = x.shape[0]
 
-        xh_pocket = xh_pocket.view(batch_size, -1, xh_pocket.shape[-1])[choices].reshape(xh_pocket.shape)
-        self._inference_context.xh_pocket = xh_pocket
+        current_xh_pocket = self.get_current_pocket_xh()
+        choice_tensor = torch.as_tensor(choices, device=current_xh_pocket.device, dtype=torch.long)
+        xh_pocket = current_xh_pocket.index_select(0, choice_tensor)
+        self.set_current_pocket_xh(xh_pocket)
+        xh_pocket = self._flat_current_pocket_xh()
 
-        x_clone = x.clone().detach()
-        x = x[..., mask]
-        curr_shape = x.shape
-        x = x.reshape(data_shape)
+        x_out = x.detach()
+        x_sbdd = x_out[..., mask]
+        curr_shape = x_sbdd.shape
+        x_sbdd = x_sbdd.reshape(data_shape)
 
-        x[..., : self.model.ddpm.n_dims], xh_pocket[..., : self.model.ddpm.n_dims] = self.model.ddpm.remove_mean_batch(
-            x[..., : self.model.ddpm.n_dims],
+        x_coords, pocket_coords = self.model.ddpm.remove_mean_batch(
+            x_sbdd[..., : self.model.ddpm.n_dims],
             xh_pocket[..., : self.model.ddpm.n_dims],
             lig_mask,  # type: ignore
-            pocket["mask"],
+            pocket_mask,
         )
-        self.model.ddpm.assert_mean_zero_with_mask(x[:, : self.model.ddpm.n_dims], lig_mask)
+        x_sbdd[..., : self.model.ddpm.n_dims] = x_coords
+        xh_pocket = xh_pocket.clone()
+        xh_pocket[..., : self.model.ddpm.n_dims] = pocket_coords
+        self._set_flat_current_pocket_xh(xh_pocket)
+        self.model.ddpm.assert_mean_zero_with_mask(x_sbdd[:, : self.model.ddpm.n_dims], lig_mask)
 
-        x_clone[..., mask] = x.reshape(curr_shape)
-        return x_clone
+        x_out[..., mask] = x_sbdd.reshape(curr_shape)
+        return x_out
 
     def decode_mu_xh_given_z0(
         self,
@@ -188,13 +204,13 @@ class DiffSBDDExpert(MoEExpertABC):
         """Decode z0 with the DiffSBDD posterior mean, without final Gaussian sampling."""
         model = self.model
         lig_mask = self._inference_context.lig_mask
-        pocket = self._inference_context.pocket
-        xh_pocket = self._inference_context.xh_pocket
-        batch_size = self._inference_context.num_samples
+        pocket_mask = self._inference_context.pocket_mask
+        xh_pocket = self._flat_current_pocket_xh()
+        batch_size = z0_lig.shape[0]
 
         t_zeros = torch.zeros(size=(batch_size, 1), device=z0_lig.device)
         gamma_0 = model.ddpm.gamma(t_zeros)
-        net_out_lig, _ = model.ddpm.dynamics(z0_lig, xh_pocket, t_zeros, lig_mask, pocket["mask"])
+        net_out_lig, _ = model.ddpm.dynamics(z0_lig, xh_pocket, t_zeros, lig_mask, pocket_mask)
         mu_xh_lig = model.ddpm.compute_x_pred(net_out_lig, z0_lig, gamma_0, lig_mask)
 
         x_lig, h_lig = model.ddpm.unnormalize(mu_xh_lig[..., : model.ddpm.n_dims], z0_lig[..., model.ddpm.n_dims :])
@@ -213,8 +229,8 @@ class DiffSBDDExpert(MoEExpertABC):
         """Decode and restore the DiffSBDD portion while preserving the full MoE tensor shape."""
         model = self.model
         lig_mask = self._inference_context.lig_mask
-        pocket = self._inference_context.pocket
-        pocket_com_before = self._inference_context.pocket_com_before
+        pocket_mask = self._inference_context.pocket_mask
+        initial_pocket_com = self._inference_context.initial_pocket_com
         data_shape = self._inference_context.data_shape
 
         x_clone = x.clone().detach()
@@ -229,16 +245,25 @@ class DiffSBDDExpert(MoEExpertABC):
                 x_lig,
                 x_pocket,
                 lig_mask,  # type: ignore
-                pocket["mask"],
+                pocket_mask,
             )
         model.ddpm.assert_mean_zero_with_mask(x_lig, lig_mask)
 
         xh_lig = torch.cat([x_lig, h_lig], dim=1)
         xh_pocket = torch.cat([x_pocket, h_pocket], dim=1)
 
-        pocket_com_after = scatter_mean(xh_pocket[:, : model.x_dims], pocket["mask"], dim=0)
-        xh_pocket[:, : model.x_dims] += (pocket_com_before - pocket_com_after)[pocket["mask"]]
-        xh_lig[:, : model.x_dims] += (pocket_com_before - pocket_com_after)[lig_mask]
+        # Re-center the pocket context to follow the resampled ligand particles
+        final_pocket_com = scatter_mean(xh_pocket[:, : model.x_dims], pocket_mask, dim=0)
+        xh_pocket[:, : model.x_dims] += (initial_pocket_com - final_pocket_com)[pocket_mask]
+        xh_lig[:, : model.x_dims] += (initial_pocket_com - final_pocket_com)[lig_mask]
 
         x_clone[..., mask] = xh_lig.detach().reshape(curr_shape).to(x_clone.device)
         return x_clone
+
+    def _flat_current_pocket_xh(self) -> Float[torch.Tensor, "B*pocket_nodes feature"]:
+        xh_pocket = self.get_current_pocket_xh()
+        return xh_pocket.reshape(-1, xh_pocket.shape[-1])
+
+    def _set_flat_current_pocket_xh(self, xh_pocket: Float[torch.Tensor, "B*pocket_nodes feature"]) -> None:
+        batch_size = self._inference_context.batch_size
+        self.set_current_pocket_xh(xh_pocket.reshape(batch_size, -1, xh_pocket.shape[-1]))

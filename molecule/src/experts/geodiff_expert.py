@@ -32,14 +32,11 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class GeoDiffInferenceContext:
-    model: DualEncoderEpsNetwork
     batch: Data
     global_start_sigma: float
     w_global: float
     clip_local: float | None
     clip: float
-    z: Float[torch.Tensor, "B data"]
-    num_samples: int
     data_shape: tuple[int, ...]
 
 
@@ -53,7 +50,6 @@ def make_inference_dataset(rdmol_list: list[Chem.Mol], transforms):
     data_list = []
     for rdmol in rdmol_list:
         data_list.append(rdmol_to_data(rdmol))
-    # print(f'num_nodes: {data_list[0].num_nodes}')
     dataset = PackedConformationDatasetFromDataList(data_list, transform=transforms)
     return dataset
 
@@ -112,21 +108,14 @@ class GeoDiffExpert(MoEExpertABC):
 
         data_input = data.clone()
         batch = repeat_data(data_input, batch_size).to(self.device)
-        clip_local = None  # Or 20 if it makes floating point error
-
-        z = torch.randn(batch.num_nodes, 3).to(self.device)
-        data_shape = z.shape
-        z = z.reshape(batch_size, -1)
+        data_shape = (batch.num_nodes, 3)
 
         prepared_data = {
-            "model": self.model,  # todo; remove this later
             "batch": batch,
             "global_start_sigma": 0.5,
             "w_global": 1.0,
-            "clip_local": clip_local,
+            "clip_local": None,  # Or 20 if it makes floating point error,
             "clip": 1000.0,
-            "z": z,
-            "num_samples": batch_size,
             "data_shape": data_shape,
         }
         # Store the prepared data for inference
@@ -203,7 +192,6 @@ class GeoDiffExpert(MoEExpertABC):
         score = eps_pos / (1 - torch.ones_like(eps_pos) * alpha_t).sqrt()
         score = score.reshape(batch_size, -1, 3)
         score = score - score.mean(dim=1).unsqueeze(1)
-        # print(f'centeralized score_geo')
         return score.reshape(curr_shape)
 
     def interleave(self, x: Float[torch.Tensor, "B data"], *args, **kwargs) -> Float[torch.Tensor, "B data"]:
@@ -264,7 +252,7 @@ class PackedConformationDatasetFromDataList(ConformationDatasetFromDataList):
         else:
             for i in range(len(self.data)):
                 self._packed_data[self.data[i].smiles].append(self.data[i])
-        print(f"[Packed] {len(self._packed_data)} Molecules, {len(self.data)} Conformations.")
+        logger.info(f"[Packed] {len(self._packed_data)} Molecules, {len(self.data)} Conformations.")
 
         new_data = []
         # logic

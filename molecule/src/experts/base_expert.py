@@ -1,8 +1,11 @@
+import os
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Protocol
 
 import torch
 from jaxtyping import Float
+
+SBDDPocketType = Float[torch.Tensor, "B pocket_nodes feature"]
 
 
 class MoEExpertABC(ABC):
@@ -57,3 +60,18 @@ class MoEExpertABC(ABC):
         correct correspondence between ligand and pocket atoms.
         """
         ...
+
+
+class SBDDExpert(Protocol):
+    def prepare_data(
+        self,
+        batch_size: int,
+        num_nodes: int,
+        protein_pocket_pdb_path: os.PathLike[str] | str,
+        *args,
+        **kwargs,
+    ) -> dict[str, Any]: ...
+
+    def get_current_pocket_xh(self) -> SBDDPocketType: ...
+
+    def set_current_pocket_xh(self, xh_pocket: SBDDPocketType) -> None: ...
