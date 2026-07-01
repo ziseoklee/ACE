@@ -7,6 +7,8 @@ data:
   protein_pocket_pdb_path: examples/4m7t_pocket.pdb
   fragment_sdf_path: examples/4m7t_fragment.sdf
   ligand_sdf_path: examples/4m7t_ligand.sdf
+  # If null, use the reference ligand atom count. Otherwise, sample a ligand with this many atoms.
+  num_ligand_atoms: null
 
 # With frozen structured configs, set weight.omega via CLI overrides.
 weight:

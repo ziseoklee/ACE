@@ -60,6 +60,7 @@ class SamplingCondition:
     protein_pocket_pdb_path: Path
     fragment: Mol
     ref_ligand: Mol
+    num_ligand_atoms: int | None = None
     condition_id: str | None = None
 
 
@@ -89,7 +90,7 @@ def build_condition_probability_path(
 ) -> ConditionProbabilityPath:
     device = sampler_cfg.device
     batch_size = sampler_cfg.batch_size
-    num_ligand_atoms = condition.ref_ligand.GetNumAtoms()
+    num_ligand_atoms = resolve_num_ligand_atoms(condition)
     num_fragment_atoms = condition.fragment.GetNumAtoms()
 
     masks = CrossDockedMoELayout(
@@ -219,7 +220,7 @@ def sample_condition(
         save_sampling_diagnostics(save_dir, logweight_trajectory, choices)
 
     logger.info("Converting atomic point-cloud features to XYZ blocks and RDKit molecules...")
-    num_ligand_atoms = condition.ref_ligand.GetNumAtoms()
+    num_ligand_atoms = resolve_num_ligand_atoms(condition)
     batch_size = sampler_cfg.batch_size
     xh_lig = samples[:, condition_path.masks.ligand_state].reshape(batch_size, num_ligand_atoms, -1)
     output_xyz_blocks = MoleculeBuilder.xyz_blocks_from_batch(
@@ -258,6 +259,23 @@ def sample_conditions(
         results.append(result)
 
     return results
+
+
+def resolve_num_ligand_atoms(condition: SamplingCondition) -> int:
+    if condition.num_ligand_atoms is None:
+        return condition.ref_ligand.GetNumAtoms()
+
+    if condition.num_ligand_atoms <= 0:
+        raise ValueError(f"num_ligand_atoms must be positive, got {condition.num_ligand_atoms}.")
+
+    num_fragment_atoms = condition.fragment.GetNumAtoms()
+    if condition.num_ligand_atoms < num_fragment_atoms:
+        raise ValueError(
+            "num_ligand_atoms cannot be smaller than the fragment atom count: "
+            f"{condition.num_ligand_atoms} < {num_fragment_atoms}."
+        )
+
+    return condition.num_ligand_atoms
 
 
 def save_sampling_diagnostics(save_dir: Path, logweight_trajectory: torch.Tensor, choices: np.ndarray) -> None:

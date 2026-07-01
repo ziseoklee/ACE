@@ -12,7 +12,12 @@ from rdkit.Chem.rdchem import Mol
 from configs import config as _config_registry  # Noqa: F401
 from configs.config_sampler import _BaseSamplerConfig
 from configs.config_weight import _BaseWeightConfig
-from inference.condition_sampling import SamplingCondition, sample_condition, write_sampling_result
+from inference.condition_sampling import (
+    SamplingCondition,
+    resolve_num_ligand_atoms,
+    sample_condition,
+    write_sampling_result,
+)
 from inference.sampling_runtime import load_sampling_runtime, log_exponent_list
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -32,8 +37,27 @@ def run_inference(cfg: DictConfig, output_dir: Path) -> None:
 
     fragment: Mol = Chem.SDMolSupplier(str(fragment_sdf_path), sanitize=False)[0]
     ligand: Mol = Chem.SDMolSupplier(str(ligand_sdf_path), sanitize=False)[0]
+    num_ligand_atoms_override = cfg.data.get("num_ligand_atoms")
+    if num_ligand_atoms_override is not None:
+        num_ligand_atoms_override = int(num_ligand_atoms_override)
 
-    num_ligand_atoms = ligand.GetNumAtoms()
+    condition = SamplingCondition(
+        protein_pocket_pdb_path=protein_pocket_pdb_path,
+        fragment=fragment,
+        ref_ligand=ligand,
+        num_ligand_atoms=num_ligand_atoms_override,
+        condition_id="single_condition",
+    )
+    num_ligand_atoms = resolve_num_ligand_atoms(condition)
+    if num_ligand_atoms_override is None:
+        logger.info("Using reference ligand atom count: %d", num_ligand_atoms)
+    else:
+        logger.info(
+            "Using configured ligand atom count: %d (reference ligand has %d atoms)",
+            num_ligand_atoms,
+            ligand.GetNumAtoms(),
+        )
+
     if num_ligand_atoms > 29:
         logger.warning(
             "29 atoms is the maximum supported number of atoms for the ligand in EDM training. "
@@ -53,12 +77,6 @@ def run_inference(cfg: DictConfig, output_dir: Path) -> None:
         weight_cfg.name,
         sampler_cfg.device,
         inference_output_dir,
-    )
-    condition = SamplingCondition(
-        protein_pocket_pdb_path=protein_pocket_pdb_path,
-        fragment=fragment,
-        ref_ligand=ligand,
-        condition_id="single_condition",
     )
     result = sample_condition(
         condition=condition,
