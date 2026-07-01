@@ -8,8 +8,7 @@ from e3_diffusion_for_molecules.configs.datasets_config import get_dataset_info
 from e3_diffusion_for_molecules.equivariant_diffusion.en_diffusion import EnVariationalDiffusion
 from e3_diffusion_for_molecules.equivariant_diffusion.utils import assert_mean_zero_with_mask, remove_mean_with_mask
 from e3_diffusion_for_molecules.qm9.models import get_model
-from jaxtyping import Float
-from rdkit.Chem.rdchem import Mol
+from jaxtyping import Bool, Float
 
 from experts import PRETRAINED_MODEL_DIR
 from experts.base_expert import MoEExpertABC
@@ -21,6 +20,8 @@ EDM_MODEL_CONFIG_PATH = EDM_SOURCE_DIR / "outputs" / "edm_qm9" / "args.pickle"
 
 
 logger = logging.getLogger(__name__)
+
+DataMask = Bool[torch.Tensor, "data"]  # noqa: F821
 
 
 @dataclass
@@ -80,32 +81,6 @@ class EDMExpert(MoEExpertABC):
 
         instance = cls(device=device, model=model, model_config=edm_config)
         return instance
-
-    def encode_xh(self, mol: Mol) -> tuple[Float[torch.Tensor, "L coords"], Float[torch.Tensor, "L feature"]]:
-        assert self.model_config.dataset == "qm9", "only qm9 is supported currently"
-
-        num_atoms = mol.GetNumAtoms()
-        dataset_info = get_dataset_info(self.model_config.dataset, self.model_config.remove_h)
-
-        h_cat: Float[torch.Tensor, "L atom_type"] = torch.zeros(
-            num_atoms,
-            len(dataset_info["atom_decoder"]),  # type: ignore
-            device=self.device,
-        )
-        h_int: Float[torch.Tensor, "L 1"] = torch.zeros(num_atoms, 1, device=self.device)
-        for i in range(num_atoms):
-            atom = mol.GetAtomWithIdx(i)
-            h_cat[i, dataset_info["atom_encoder"][atom.GetSymbol()]] = 1  # type: ignore
-            if self.model_config.include_charges:
-                h_int[i][0] = atom.GetAtomicNum()
-        h = {"categorical": h_cat[None], "integer": h_int[None]}
-
-        x: Float[torch.Tensor, "L coords"] = torch.tensor(mol.GetConformer().GetPositions(), device=self.device)
-        node_mask: Float[torch.Tensor, "L 1"] = torch.ones(num_atoms, device=self.device)[:, None]
-
-        x_norm, h, _ = self.model.normalize(x[None], h, node_mask[None])
-        h_norm: Float[torch.Tensor, "L feature"] = torch.cat([h["categorical"][0], h["integer"][0]], dim=1)
-        return x_norm[0], h_norm
 
     def prepare_data(self, batch_size: int, num_nodes: int):
         # Implementation for preparing data specific to EDM
@@ -195,6 +170,22 @@ class EDMExpert(MoEExpertABC):
         # Implementation for interleaving data specific to EDM; no-op
         return x
 
-    def postprocess(self, x: Float[torch.Tensor, "B data"], *args, **kwargs) -> Float[torch.Tensor, "B data"]:
-        # Implementation for postprocessing results from the EDM expert; no-op
-        return x
+    def postprocess(
+        self,
+        x: Float[torch.Tensor, "B data"],
+        h_mask: DataMask | None = None,
+    ) -> Float[torch.Tensor, "B data"]:
+        """
+        Decode EDM-owned H channels for the current DiffSBDD-EDM MoE layout.
+
+        C/N/O/F channels are decoded by DiffSBDD to avoid double unnormalization.
+        EDM's integer feature is nuclear charge, not formal charge, and remains
+        ignored by the current molecule construction path.
+        """
+        if h_mask is None:
+            return x
+
+        h_mask = h_mask.to(device=x.device)
+        x_out = x.clone()
+        x_out[..., h_mask] = x_out[..., h_mask] * self.model.norm_values[1] + self.model.norm_biases[1]
+        return x_out

@@ -24,6 +24,7 @@ ATOM_TYPE_DIM: Final = len(ATOM_TYPE_INDEX)
 NUCLEAR_CHARGE_FEATURE_DIM: Final = 1
 NODE_FEATURE_DIM: Final = COORDS_DIM + ATOM_TYPE_DIM + NUCLEAR_CHARGE_FEATURE_DIM
 
+H_ATOM_TYPE_COLUMN: Final = COORDS_DIM + ATOM_TYPE_INDEX["H"]
 NUCLEAR_CHARGE_FEATURE_COLUMN: Final = NODE_FEATURE_DIM - 1
 
 _DIFFSBDD_CROSSDOCKED_ACTIVE_ATOMS: Final = ("C", "N", "O", "S", "B", "Br", "Cl", "P", "I", "F")
@@ -65,6 +66,7 @@ class CrossDockedMoEMasks:
     diffsbdd_ligand_xh: DataMask
     diffsbdd_ligand_padding: DataMask
     edm_ligand_xh: DataMask
+    edm_ligand_h_atom_type: DataMask
     edm_ligand_padding: DataMask
     fragment_state_in_ligand: DataMask
     ligand_state: DataMask
@@ -104,6 +106,7 @@ class CrossDockedMoELayout:
         diffsbdd_ligand_padding = self._node_mask(self.ligand_size, _DIFFSBDD_CROSSDOCKED_PADDING_COLUMNS)
 
         edm_ligand_xh = self._node_mask(self.ligand_size, _EDM_QM9_ACTIVE_COLUMNS)
+        edm_ligand_h_atom_type = self._node_mask(self.ligand_size, (H_ATOM_TYPE_COLUMN,))
         edm_ligand_padding = ~edm_ligand_xh
 
         fragment_state_in_ligand = torch.zeros(self.ligand_size, NODE_FEATURE_DIM, dtype=torch.bool, device=self.device)
@@ -118,6 +121,7 @@ class CrossDockedMoELayout:
             diffsbdd_ligand_xh=diffsbdd_ligand_xh,
             diffsbdd_ligand_padding=diffsbdd_ligand_padding,
             edm_ligand_xh=edm_ligand_xh,
+            edm_ligand_h_atom_type=edm_ligand_h_atom_type,
             edm_ligand_padding=edm_ligand_padding,
             fragment_state_in_ligand=fragment_state_in_ligand.flatten(),
             ligand_state=ligand_state.flatten(),

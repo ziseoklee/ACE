@@ -14,7 +14,13 @@ from configs.config_sampler import _BaseSamplerConfig
 from inference.sampling_runtime import SamplingRuntime, seed_everything
 from postprocessing import MoleculeBuilder
 from postprocessing.topology import replace_mol_topology_by_fragment
-from sampling.moe_layout import _EDM_QM9_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX, CrossDockedMoELayout, CrossDockedMoEMasks
+from sampling.moe_layout import (
+    ATOM_TYPE_DIM,
+    ATOM_TYPE_INDEX,
+    NUCLEAR_CHARGE_FEATURE_DIM,
+    CrossDockedMoELayout,
+    CrossDockedMoEMasks,
+)
 from sampling.path_factory import (
     build_diffsbdd_ligand_path,
     build_edm_fragment_path,
@@ -26,6 +32,28 @@ from sampling.probability_path import MoEProbabilityPath
 from sampling.sampler import InterleaveFn, MoEPDESampler, PostprocessFn
 
 logger = logging.getLogger(__name__)
+
+
+def _fragment_atom_type_indices(fragment: Mol, device: str) -> torch.Tensor:
+    atom_type_indices = []
+    for atom in fragment.GetAtoms():
+        symbol = atom.GetSymbol()
+        if symbol not in ATOM_TYPE_INDEX:
+            supported_atoms = ", ".join(ATOM_TYPE_INDEX)
+            raise ValueError(f"Unsupported fragment atom type {symbol!r}. Supported atom types: {supported_atoms}.")
+        atom_type_indices.append(ATOM_TYPE_INDEX[symbol])
+
+    return torch.tensor(atom_type_indices, device=device, dtype=torch.long)
+
+
+def _fragment_atom_feature_point(fragment: Mol, device: str, atom_type_value: float) -> torch.Tensor:
+    point = torch.zeros(fragment.GetNumAtoms(), ATOM_TYPE_DIM + NUCLEAR_CHARGE_FEATURE_DIM, device=device)
+    atom_type_indices = _fragment_atom_type_indices(fragment, device=device)
+    point[torch.arange(fragment.GetNumAtoms(), device=device), atom_type_indices] = atom_type_value
+
+    # The last auxiliary feature is EDM's integer nuclear-charge feature.
+    # It is left as zero padding because molecule construction uses atom symbols, not this feature.
+    return point
 
 
 @dataclass(frozen=True)
@@ -64,7 +92,6 @@ def build_condition_probability_path(
     batch_size = sampler_cfg.batch_size
     num_ligand_atoms = condition.ref_ligand.GetNumAtoms()
     num_fragment_atoms = condition.fragment.GetNumAtoms()
-    edm2sbdd_atoms = _EDM_QM9_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX
 
     masks = CrossDockedMoELayout(
         fragment_size=num_fragment_atoms,
@@ -98,16 +125,13 @@ def build_condition_probability_path(
     logger.info("  Building GeoDiff probability path for fragment part conformer generation...")
     runtime.geodiff.prepare_data(batch_size, condition.fragment)
 
-    _, fragment_h = runtime.edm_fragment.encode_xh(condition.fragment)
-    fragment_atom_types = fragment_h[:, :-1].argmax(dim=-1)
-    fragment_atom_types = torch.tensor([edm2sbdd_atoms[int(v.item())] for v in fragment_atom_types], device=device)
-
-    geodiff_atom_feature_point = make_zero_auxiliary_point(
-        num_fragment_atoms,
-        masks.geodiff_fragment_atom_features,
+    fragment_atom_types = _fragment_atom_type_indices(condition.fragment, device=device)
+    atom_type_value = 1.0 / float(runtime.edm_fragment.model.norm_values[1])
+    geodiff_atom_feature_point = _fragment_atom_feature_point(
+        condition.fragment,
         device=device,
+        atom_type_value=atom_type_value,
     )
-    geodiff_atom_feature_point[:, list(edm2sbdd_atoms.values()) + [-1]] = fragment_h.to(device=device)
     q_geodiff_pad = build_geodiff_fragment_path(
         expert=runtime.geodiff,
         scheduler=runtime.scheduler_geodiff,
@@ -152,8 +176,10 @@ def build_condition_probability_path(
         functools.partial(runtime.diffsbdd.interleave, mask=masks.diffsbdd_ligand_xh),
     ]
     postprocess_fns = [
-        runtime.edm_fragment.postprocess,
-        runtime.edm_ligand.postprocess,
+        # FIXME: Passing h_mask through a generic postprocess hook is a layout-specific workaround.
+        # Refactor expert postprocessing to declare owned output channels explicitly.
+        functools.partial(runtime.edm_fragment.postprocess, h_mask=None),
+        functools.partial(runtime.edm_ligand.postprocess, h_mask=masks.edm_ligand_h_atom_type),
         runtime.geodiff.postprocess,
         functools.partial(runtime.diffsbdd.postprocess, mask=masks.diffsbdd_ligand_xh),
     ]
