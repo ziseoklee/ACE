@@ -86,6 +86,9 @@ uv run ace-crossdocked-infer \
 
 # Inference output structure will look like:
 #   outputs/crossdocked2020/{sampler_weight_timestamp}/inference/{task_id}/{sample}.sdf
+#   outputs/crossdocked2020/{sampler_weight_timestamp}/inference/{task_id}/{sample}.xyz
+#   outputs/crossdocked2020/{sampler_weight_timestamp}/inference/{task_id}/{sample}.png
+#   outputs/crossdocked2020/{sampler_weight_timestamp}/inference/{task_id}/fragment.png
 
 
 # Evaluation
@@ -110,7 +113,7 @@ src/
 ├── inference/                    # Condition-level orchestration and shared runtime loading
 ├── experts/                      # Adapters for pretrained DiffSBDD, EDM, and GeoDiff experts
 ├── sampling/                     # Probability paths, schedulers, MoE path construction, and samplers
-├── postprocessing/               # Molecule building, scaffold topology enforcement, valence fixes
+├── postprocessing/               # Molecule building plus deprecated scaffold/valence helpers
 ├── evaluation/                   # Click CLI, metrics, CrossDocked2020 evaluation, and summaries
 ├── pretrained_models/            # Vendored pretrained expert repositories
 ├── lib/                          # Packaged external binaries such as qvina2
@@ -123,4 +126,48 @@ The command-line entrypoints mirror this separation:
 - `ace-crossdocked-infer`: CrossDocked2020 benchmark inference
 - `ace-evaluate`: per-sample and CrossDocked2020 evaluation
 
-Pretrained model code is kept under `src/pretrained_models/`, while `src/experts/` provides the ACE/MoE-facing adapter layer. The sampler treats generated ligands as point clouds. Converting those point clouds into RDKit molecules by adding bonds and enforcing scaffold topology is handled in `src/postprocessing/`.
+Pretrained model code is kept under `src/pretrained_models/`, while `src/experts/` provides the ACE/MoE-facing adapter layer. The sampler treats generated ligands as point clouds. Because SDE-based sampling only produces atom coordinates and atom features, bond topology is assigned afterward in `src/postprocessing/`.
+
+The current molecule-building flow is:
+
+```text
+xh point-cloud tensor -> XYZ block -> OpenBabel Python API bond-order guess -> fresh RDKit Mol copy
+```
+
+Scaffold topology is not enforced during this postprocessing step. Generated samples are first converted from point clouds into molecules, and fragment preservation should be evaluated afterward from the generated molecule topology.
+
+### Utilities
+
+To inspect a CrossDocked2020 processed sample without running inference, use:
+
+```bash
+uv run python src/utils/peek_crossdocked_sample.py 85
+```
+
+This prints the stored pocket/scaffold metadata and writes 2D topology PNGs for the fragment and ligand.
+
+### Atom feature layout
+
+The current shared MoE layout is specialized for the GeoDiff-QM9, EDM-QM9, and DiffSBDD-CrossDocked expert combination. If you swap or add experts, update `src/sampling/moe_layout.py` so the shared atom-feature vocabulary and each expert mask match the models' training representations. The layout file keeps model-specific constants such as `_DIFFSBDD_CROSSDOCKED_ACTIVE_ATOMS`, `_EDM_QM9_ACTIVE_ATOMS`, and their active/padding columns.
+
+The shared per-atom state is:
+
+```text
+[x, y, z, C, N, O, S, B, Br, Cl, P, I, F, H, nuclear_charge_feature]
+```
+
+The atom-type indices are:
+
+```text
+C=0, N=1, O=2, S=3, B=4, Br=5, Cl=6, P=7, I=8, F=9, H=10
+```
+
+Expert representations differ:
+
+- DiffSBDD-CrossDocked uses `C, N, O, S, B, Br, Cl, P, I, F, others`. In the current MoE combination, DiffSBDD owns the heavy-atom decode for `C/N/O/S/B/Br/Cl/P/I/F`; `H` and the nuclear-charge feature are padding for DiffSBDD.
+- EDM-QM9 uses `H, C, N, O, F` plus an integer nuclear-charge feature. In the current MoE combination, only the EDM-owned `H` channel is decoded by EDM postprocessing; `C/N/O/F` are left to DiffSBDD to avoid double unnormalization. The final integer feature is the atomic number feature, not RDKit formal charge, and is ignored by molecule construction.
+- GeoDiff uses fragment atom types as fixed auxiliary features for the fragment coordinate path. The nuclear-charge feature is zero-padded there.
+
+## Additional Remarks
+
+Combining DiffSBDD and EDM in the current MoE setup is relatively straightforward because both models apply the same `1/4` scaling to atom features, which makes their sample spaces reasonably aligned. More general expert combinations may require explicit feature-space calibration.
