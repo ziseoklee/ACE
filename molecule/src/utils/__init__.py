@@ -1,11 +1,9 @@
 from .molecule_drawing import (
     molecule_to_topology_png,
-    save_molecule_topology_image,
-    save_sdf_topology_image,
+    sdf_to_first_mol,
 )
 
 __all__ = [
     "molecule_to_topology_png",
-    "save_molecule_topology_image",
-    "save_sdf_topology_image",
+    "sdf_to_first_mol",
 ]

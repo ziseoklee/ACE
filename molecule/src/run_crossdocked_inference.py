@@ -21,7 +21,7 @@ from configs.config_sampler import _BaseSamplerConfig
 from configs.config_weight import _BaseWeightConfig
 from inference.condition_sampling import SamplingCondition, sample_condition
 from inference.sampling_runtime import load_sampling_runtime, log_exponent_list
-from utils.molecule_drawing import save_molecule_topology_image
+from utils.molecule_drawing import molecule_to_topology_png
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ def run_crossdocked_inference(cfg: DictConfig, output_dir: Path) -> None:
         if task_save_dir.exists():
             shutil.rmtree(task_save_dir)
         task_save_dir.mkdir(parents=True, exist_ok=True)
-        save_molecule_topology_image(condition.fragment, task_save_dir / "fragment.png")
+        _write_molecule_topology_png(condition.fragment, task_save_dir / "fragment.png")
 
         logger.info(
             "Running inference for task %s with sampler %s and weight %s",
@@ -202,7 +202,7 @@ def _write_molecule_samples(samples: Sequence[Mol | None], save_dir: Path, prefi
         try:
             writer = Chem.SDWriter(str(output_path))
             writer.write(sample)
-            save_molecule_topology_image(sample, output_path.with_suffix(".png"))
+            _write_molecule_topology_png(sample, output_path.with_suffix(".png"))
         except Exception:
             logger.exception("Failed to save molecule sample to %s", output_path)
         finally:
@@ -217,6 +217,13 @@ def _write_xyz_samples(xyz_blocks: Sequence[str], save_dir: Path, prefix: str = 
             output_path.write_text(xyz_block)
         except Exception:
             logger.exception("Failed to save XYZ sample to %s", output_path)
+
+
+def _write_molecule_topology_png(mol: Mol, output_path: Path) -> None:
+    try:
+        output_path.write_bytes(molecule_to_topology_png(mol))
+    except Exception:
+        logger.exception("Failed to save molecule topology image to %s", output_path)
 
 
 @hydra.main(config_path="configs", config_name="crossdocked_inference", version_base=None)
