@@ -25,10 +25,13 @@ uv run ace-infer \
     weight=ACEBumpWeight \
     weight.omega=1.4 \
     weight.B1=30 \
-    weight.B2=0.336
+    weight.B2=0.336 \
+    data.num_ligand_atoms=28
 ```
 
 Please refer to [`config_sampler.py`](src/configs/config_sampler.py), [`config_weight.py`](src/configs/config_weight.py), [`config_benchmark.py`](src/configs/config_benchmark.py), [`inference.yaml`](src/configs/inference.yaml), and [`crossdocked_inference.yaml`](src/configs/crossdocked_inference.yaml) for configuration options. [`config.py`](src/configs/config.py) registers these structured configs with Hydra. You can also run `uv run ace-infer --cfg job` to print the resolved inference config.
+
+For single-condition inference, `data.num_ligand_atoms=null` uses the reference ligand atom count. Set `data.num_ligand_atoms=<int>` to sample a ligand with an explicitly chosen number of atoms.
 
 ### Run evaluation for generated samples
 
