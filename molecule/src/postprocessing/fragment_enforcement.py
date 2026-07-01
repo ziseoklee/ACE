@@ -1,3 +1,12 @@
+"""Deprecated scaffold-first reconstruction utilities.
+
+This module is kept for legacy experiments only. Current inference no longer
+forces scaffold topology during postprocessing; generated topology is preserved
+and fragment recovery is evaluated downstream.
+"""
+
+import warnings
+
 import numpy as np
 from rdkit import Chem
 from scipy.spatial.distance import cdist
@@ -143,6 +152,8 @@ class UnionFind:
 
 def reconstruct_molecule_with_scaffold(input_mol, scaffold_mol):
     """
+    Deprecated: legacy scaffold-first reconstruction from generated point clouds.
+
     Reconstructs a molecule from an input RDKit molecule (treating it as a point cloud)
     while enforcing a scaffold topology, inferring new bonds from geometry,
     and guaranteeing full graph connectivity.
@@ -154,6 +165,12 @@ def reconstruct_molecule_with_scaffold(input_mol, scaffold_mol):
                                        Assumes the FIRST N atoms in input_mol correspond
                                        exactly (by index) to the scaffold_mol.
     """
+    warnings.warn(
+        "reconstruct_molecule_with_scaffold is deprecated. Current inference preserves generated topology and "
+        "evaluates fragment recovery downstream instead of forcing scaffold topology.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     # 0. Extract Data from Input Mol
     atom_types = [atom.GetAtomicNum() for atom in input_mol.GetAtoms()]
@@ -321,6 +338,8 @@ def reconstruct_molecule_with_scaffold(input_mol, scaffold_mol):
 
 def fix_valence_issues(mol, num_scaffold_atoms):
     """
+    Deprecated: legacy valence repair helper for scaffold-reconstructed molecules.
+
     Iteratively fixes valence issues in a molecule by reducing/removing bonds.
     Prioritizes removing/reducing non-scaffold bonds first.
     Preserves scaffold connectivity (never removes a scaffold single bond).
@@ -331,6 +350,12 @@ def fix_valence_issues(mol, num_scaffold_atoms):
         num_scaffold_atoms (int): The number of atoms in the scaffold.
                                   Assumes first N atoms match the scaffold.
     """
+    warnings.warn(
+        "fix_valence_issues is deprecated together with scaffold reconstruction postprocessing.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     # Ensure editable
     if not isinstance(mol, Chem.RWMol):
         rw_mol = Chem.RWMol(mol)

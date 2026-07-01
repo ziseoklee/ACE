@@ -1,4 +1,12 @@
+"""Deprecated file-based scaffold reconstruction wrapper.
+
+This module is kept for legacy experiments only. Current inference writes
+OpenBabel-built generated molecules directly and evaluates fragment recovery
+downstream instead of reconstructing samples with the input fragment.
+"""
+
 import logging
+import warnings
 from pathlib import Path
 
 from rdkit import Chem
@@ -15,6 +23,13 @@ def postprocess_valfix(
     output_ligand_dir: Path,
     num_samples: int,
 ):
+    warnings.warn(
+        "postprocess_valfix is deprecated. Current inference no longer runs scaffold/fragment reconstruction as a "
+        "postprocessing pass; fragment recovery should be measured during evaluation.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     logger.info(f"protein_pocket_pdb_path: {protein_pocket_pdb_path}")
     logger.info(f"fragment_sdf_path: {fragment_sdf_path}")
     logger.info(f"ref_ligand_sdf_path: {ref_ligand_sdf_path}")

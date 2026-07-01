@@ -1,8 +1,19 @@
+"""Deprecated topology replacement helpers.
+
+This module is kept for legacy experiments only. Current inference no longer
+overwrites generated molecule topology with the input fragment topology.
+"""
+
+import warnings
+
 from rdkit import Chem
 
 
 def replace_mol_topology_by_fragment(mol: Chem.Mol, fragment: Chem.Mol, atom_indices: list[int]) -> Chem.Mol:
     """
+    Deprecated: legacy helper for forcibly overwriting a generated subgraph with
+    the input fragment topology.
+
     Replace topology of a subgraph in a molecule with a given fragment, preserving conformer coordinates.
 
     Args:
@@ -16,6 +27,13 @@ def replace_mol_topology_by_fragment(mol: Chem.Mol, fragment: Chem.Mol, atom_ind
     Raises:
         ValueError: If atom indices are invalid or fragment size doesn't match
     """
+    warnings.warn(
+        "replace_mol_topology_by_fragment is deprecated. Current inference keeps generated topology and evaluates "
+        "fragment recovery downstream instead of forcing fragment topology during postprocessing.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     if len(atom_indices) != fragment.GetNumAtoms():
         raise ValueError(
             f"Number of atoms in fragment ({fragment.GetNumAtoms()}) must match "
