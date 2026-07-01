@@ -18,14 +18,14 @@ ATOM_TYPE_INDEX: Final = {
     "P": 7,
     "I": 8,
     "F": 9,
-    "others": 10,
+    "H": 10,
 }
 ATOM_TYPE_DIM: Final = len(ATOM_TYPE_INDEX)
 CHARGE_DIM: Final = 1
 ALL_DIM: Final = COORDS_DIM + ATOM_TYPE_DIM + CHARGE_DIM
 
 EDM_ATOM_INDEX_TO_GLOBAL_ATOM_INDEX: Final = {
-    0: ATOM_TYPE_INDEX["others"],  # H
+    0: ATOM_TYPE_INDEX["H"],
     1: ATOM_TYPE_INDEX["C"],
     2: ATOM_TYPE_INDEX["N"],
     3: ATOM_TYPE_INDEX["O"],
@@ -39,7 +39,7 @@ _DIFFSBDD_ACTIVE_COLUMNS: Final = tuple(range(COORDS_DIM)) + tuple(
     COORDS_DIM + ATOM_TYPE_INDEX[atom] for atom in _DIFFSBDD_ACTIVE_ATOMS
 )
 _DIFFSBDD_PADDING_COLUMNS: Final = (
-    COORDS_DIM + ATOM_TYPE_INDEX["others"],
+    COORDS_DIM + ATOM_TYPE_INDEX["H"],
     ALL_DIM - 1,
 )
 _EDM_ACTIVE_COLUMNS: Final = (
