@@ -1,4 +1,3 @@
-import copy
 import functools
 import logging
 from dataclasses import dataclass
@@ -213,10 +212,12 @@ def sample_condition(
             interleave_fns=condition_path.interleave_fns,
             postprocess_fns=condition_path.postprocess_fns,
         )
+    logger.info("Sampling completed. Number of samples: %d", samples.shape[0])
 
     if save_dir is not None:
         save_sampling_diagnostics(save_dir, logweight_trajectory, choices)
 
+    logger.info("Converting atomic point-cloud features to XYZ blocks and RDKit molecules...")
     num_ligand_atoms = condition.ref_ligand.GetNumAtoms()
     batch_size = sampler_cfg.batch_size
     xh_lig = samples[:, condition_path.masks.ligand_state].reshape(batch_size, num_ligand_atoms, -1)
@@ -229,7 +230,7 @@ def sample_condition(
     return SamplingResult(
         condition=condition,
         xyz_blocks=output_xyz_blocks,
-        samples=copy.deepcopy(output_molecules),
+        samples=output_molecules,
         logweight_trajectory=logweight_trajectory,
         choices=choices,
     )
