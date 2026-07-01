@@ -28,6 +28,7 @@ from sampling.path_factory import (
 )
 from sampling.probability_path import MoEProbabilityPath
 from sampling.sampler import InterleaveFn, MoEPDESampler, PostprocessFn
+from utils.molecule_drawing import save_molecule_topology_image
 
 logger = logging.getLogger(__name__)
 
@@ -274,6 +275,7 @@ def save_sampling_diagnostics(save_dir: Path, logweight_trajectory: torch.Tensor
 
 def write_sampling_result(result: SamplingResult, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
+    save_molecule_topology_image(result.condition.fragment, output_dir / "fragment.png")
 
     for idx, xyz_block in enumerate(result.xyz_blocks):
         try:
@@ -288,5 +290,6 @@ def write_sampling_result(result: SamplingResult, output_dir: Path) -> None:
             writer = Chem.SDWriter(str(output_dir / f"{idx}.sdf"))
             writer.write(sample)
             writer.close()
+            save_molecule_topology_image(sample, output_dir / f"{idx}.png")
         except Exception as e:
             logger.error(f"Failed to save sample {idx}: {e}")
