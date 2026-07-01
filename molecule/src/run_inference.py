@@ -14,7 +14,6 @@ from configs.config_sampler import _BaseSamplerConfig
 from configs.config_weight import _BaseWeightConfig
 from inference.condition_sampling import SamplingCondition, sample_condition, write_sampling_result
 from inference.sampling_runtime import load_sampling_runtime, log_exponent_list
-from postprocessing.valence_fix import postprocess_valfix
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -68,17 +67,9 @@ def run_inference(cfg: DictConfig, output_dir: Path) -> None:
         save_dir=inference_output_dir,
     )
     write_sampling_result(result, inference_output_dir)
-    logger.info("Generated %d valid samples after replacement.", len(result.samples))
-
-    logger.info("Starting postprocessing of generated samples with postprocess_valfix...")
-    postprocess_valfix(
-        protein_pocket_pdb_path=protein_pocket_pdb_path,
-        fragment_sdf_path=fragment_sdf_path,
-        ref_ligand_sdf_path=ligand_sdf_path,
-        output_ligand_dir=inference_output_dir,
-        num_samples=sampler_cfg.batch_size,
-    )
-    logger.info("Inference and postprocessing completed successfully.")
+    num_valid_samples = sum(sample is not None for sample in result.samples)
+    logger.info("Generated %d valid samples.", num_valid_samples)
+    logger.info("Inference completed successfully.")
 
 
 @hydra.main(config_path="configs", config_name="inference", version_base=None)

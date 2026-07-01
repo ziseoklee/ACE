@@ -96,8 +96,8 @@ def run_crossdocked_inference(cfg: DictConfig, output_dir: Path) -> None:
             sampler_cfg.name,
             weight_cfg.name,
         )
-        original_samples: list[Mol | None] = []
-        replaced_samples: list[Mol] = []
+        xyz_blocks: list[str] = []
+        generated_samples: list[Mol | None] = []
         for trial_idx in range(benchmark_cfg.num_trials):
             logger.info("Trial %d for task %s", trial_idx, task_path.stem)
             trial_sampler_cfg = _sampler_cfg_with_seed(sampler_cfg, benchmark_cfg.seed + trial_idx)
@@ -112,12 +112,13 @@ def run_crossdocked_inference(cfg: DictConfig, output_dir: Path) -> None:
                 logger.exception("Trial %d failed for task %s", trial_idx, task_path.stem)
                 continue
 
-            original_samples.extend(result.original_samples)
-            replaced_samples.extend(result.samples)
-            logger.info("Valid samples in trial %d: %d", trial_idx, len(result.samples))
+            xyz_blocks.extend(result.xyz_blocks)
+            generated_samples.extend(result.samples)
+            num_valid_samples = sum(sample is not None for sample in result.samples)
+            logger.info("Valid samples in trial %d: %d", trial_idx, num_valid_samples)
 
-        _write_molecule_samples(replaced_samples, task_save_dir)
-        _write_molecule_samples(original_samples, task_save_dir, prefix="original_")
+        _write_molecule_samples(generated_samples, task_save_dir)
+        _write_xyz_samples(xyz_blocks, task_save_dir)
 
     logger.info("Done!")
 
@@ -204,6 +205,15 @@ def _write_molecule_samples(samples: Sequence[Mol | None], save_dir: Path, prefi
         finally:
             if writer is not None:
                 writer.close()
+
+
+def _write_xyz_samples(xyz_blocks: Sequence[str], save_dir: Path, prefix: str = "") -> None:
+    for idx, xyz_block in enumerate(xyz_blocks):
+        output_path = save_dir / f"{prefix}{idx}.xyz"
+        try:
+            output_path.write_text(xyz_block)
+        except Exception:
+            logger.exception("Failed to save XYZ sample to %s", output_path)
 
 
 @hydra.main(config_path="configs", config_name="crossdocked_inference", version_base=None)

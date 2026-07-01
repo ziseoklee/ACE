@@ -13,7 +13,6 @@ from rdkit.Chem import Mol
 from configs.config_sampler import _BaseSamplerConfig
 from inference.sampling_runtime import SamplingRuntime, seed_everything
 from postprocessing import MoleculeBuilder
-from postprocessing.topology import replace_mol_topology_by_fragment
 from sampling.moe_layout import (
     ATOM_TYPE_DIM,
     ATOM_TYPE_INDEX,
@@ -77,8 +76,8 @@ class ConditionProbabilityPath:
 @dataclass
 class SamplingResult:
     condition: SamplingCondition
-    original_samples: list[Mol | None]
-    samples: list[Mol]
+    xyz_blocks: list[str]
+    samples: list[Mol | None]
     logweight_trajectory: torch.Tensor
     choices: np.ndarray
 
@@ -220,39 +219,17 @@ def sample_condition(
 
     num_ligand_atoms = condition.ref_ligand.GetNumAtoms()
     batch_size = sampler_cfg.batch_size
-    xh_lig = samples[:, condition_path.masks.diffsbdd_ligand_xh].reshape(batch_size, num_ligand_atoms, -1)
-    molecules = MoleculeBuilder.build_batch(
-        xh=xh_lig,
-        dataset_info=runtime.diffsbdd.model.dataset_info,
+    xh_lig = samples[:, condition_path.masks.ligand_state].reshape(batch_size, num_ligand_atoms, -1)
+    output_xyz_blocks = MoleculeBuilder.xyz_blocks_from_batch(
+        xh_lig,
         fragment_atom_types=condition_path.fragment_atom_types,
-        x_dims=runtime.diffsbdd.model.x_dims,
-        add_coords=True,
-        add_hydrogens=False,
-        sanitize=False,
-        relax_iter=0,
-        largest_frag=False,
     )
-
-    original_samples: list[Mol | None] = []
-    replaced_samples: list[Mol] = []
-    for molecule in molecules:
-        original_samples.append(copy.deepcopy(molecule))
-        if molecule is None:
-            continue
-        try:
-            replaced_sample = replace_mol_topology_by_fragment(
-                molecule,
-                condition.fragment,
-                list(range(condition.fragment.GetNumAtoms())),
-            )
-            replaced_samples.append(replaced_sample)
-        except Exception as e:
-            logger.error(f"Replacement failed for a sample: {e}")
+    output_molecules = MoleculeBuilder.build_mols_from_xyz_blocks(output_xyz_blocks)
 
     return SamplingResult(
         condition=condition,
-        original_samples=copy.deepcopy(original_samples),
-        samples=copy.deepcopy(replaced_samples),
+        xyz_blocks=output_xyz_blocks,
+        samples=copy.deepcopy(output_molecules),
         logweight_trajectory=logweight_trajectory,
         choices=choices,
     )
@@ -294,25 +271,21 @@ def save_sampling_diagnostics(save_dir: Path, logweight_trajectory: torch.Tensor
             f_choices.write(f"Step {step}: {choice}\n")
 
 
-def write_sampling_result(result: SamplingResult, output_dir: Path, save_original: bool = True) -> None:
+def write_sampling_result(result: SamplingResult, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    for idx, xyz_block in enumerate(result.xyz_blocks):
+        try:
+            (output_dir / f"{idx}.xyz").write_text(xyz_block)
+        except Exception as e:
+            logger.error(f"Failed to save XYZ sample {idx}: {e}")
+
     for idx, sample in enumerate(result.samples):
+        if sample is None:
+            continue
         try:
             writer = Chem.SDWriter(str(output_dir / f"{idx}.sdf"))
             writer.write(sample)
             writer.close()
         except Exception as e:
             logger.error(f"Failed to save sample {idx}: {e}")
-
-    if not save_original:
-        return
-
-    for idx, sample in enumerate(result.original_samples):
-        if sample is None:
-            continue
-        try:
-            writer = Chem.SDWriter(str(output_dir / f"original_{idx}.sdf"))
-            writer.write(sample)
-            writer.close()
-        except Exception as e:
-            logger.error(f"Failed to save original sample {idx}: {e}")
