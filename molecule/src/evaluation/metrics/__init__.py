@@ -1,2 +1,1 @@
 """Single-sample evaluation metrics."""
-

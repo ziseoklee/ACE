@@ -9,4 +9,3 @@ class CrossDockedSampleRecord:
     ligand_sdf_path: Path
     task_dir: Path
     exists: bool
-
