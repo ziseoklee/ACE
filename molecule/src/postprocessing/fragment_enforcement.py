@@ -274,7 +274,7 @@ def reconstruct_molecule_with_scaffold(input_mol, scaffold_mol):
     # 6. PHASE 3: Ensure Full Connectivity
     # Initialize UnionFind with existing bonds
     uf = UnionFind(num_atoms)
-    for bond in mol.GetBonds():  # type: ignore
+    for bond in mol.GetBonds():
         uf.union(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())
 
     if uf.count > 1:

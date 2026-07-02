@@ -101,7 +101,7 @@ class EDMExpert(MoEExpertABC):
             "data_shape": data_shape,
         }
         # Store the prepared data for inference
-        self._inference_context = EDMInferenceContext(**prepared_data)  # type: ignore
+        self._inference_context = EDMInferenceContext(**prepared_data)  # pyright: ignore[reportArgumentType]
         return prepared_data
 
     def score(

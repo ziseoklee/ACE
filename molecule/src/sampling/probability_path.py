@@ -375,7 +375,7 @@ class MoEProbabilityPath(ProbabilityPathABC):
             assert logq_tensor is not None, "logq_tensor must be provided when use_logq is True"
             d_gamma = torch.stack(  # time derivatives of exponents
                 [
-                    torch.func.jacfwd(exponent_fn, argnums=0)(t).squeeze().diag().unsqueeze(1)  # type: ignore
+                    torch.func.jacfwd(exponent_fn, argnums=0)(t).squeeze().diag().unsqueeze(1)  # pyright: ignore[reportAttributeAccessIssue]
                     for exponent_fn in self.exponent_list
                 ],
                 dim=1,

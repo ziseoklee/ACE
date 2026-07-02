@@ -127,7 +127,7 @@ class PointMassDistribution(nn.Module):
             alpha = scheduler.ddpm_alpha2(t).sqrt()[0]
             sigma = scheduler.ddpm_sigma2(t).sqrt()[0]
 
-            convolved: MultivariateGaussian = sigma * prior + alpha * point  # type: ignore
+            convolved: MultivariateGaussian = sigma * prior + alpha * point  # pyright: ignore[reportAssignmentType]
             return convolved.grad_log_prob(x)
 
         score_fn = functools.partial(score, prior=prior, point=self.point)

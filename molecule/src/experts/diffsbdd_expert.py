@@ -82,11 +82,11 @@ class DiffSBDDExpert(MoEExpertABC):
         # Implementation for preparing data specific to DiffSBDD
         protein_pocket_pdb_path = Path(protein_pocket_pdb_path)
         parser = PDBParser(QUIET=True)
-        protein_pocket_structure = parser.get_structure("", str(protein_pocket_pdb_path))[0]  # type: ignore
+        protein_pocket_structure = parser.get_structure("", str(protein_pocket_pdb_path))[0]  # pyright: ignore[reportOptionalSubscript]
         residues = get_pocket_from_ligand(protein_pocket_structure, reference_ligand_mol)
 
         pocket = self.model.prepare_pocket(residues, repeats=batch_size)
-        pocket: dict[str, torch.Tensor] = self.model.ddpm.normalize(pocket=pocket)[1]  # type: ignore
+        pocket: dict[str, torch.Tensor] = self.model.ddpm.normalize(pocket=pocket)[1]  # pyright: ignore[reportAssignmentType]
         pocket_mask = pocket["mask"]
         initial_pocket_com = scatter_mean(pocket["x"], pocket_mask, dim=0)
         xh0_pocket = torch.cat([pocket["x"], pocket["one_hot"]], dim=1)
@@ -103,7 +103,7 @@ class DiffSBDDExpert(MoEExpertABC):
             "batch_size": batch_size,
         }
         # Store the prepared data for inference
-        self._inference_context = DiffSBDDInferenceContext(**prepared_data)  # type: ignore
+        self._inference_context = DiffSBDDInferenceContext(**prepared_data)  # pyright: ignore[reportArgumentType]
         return prepared_data
 
     def get_current_pocket_xh(self) -> SBDDPocketType:
@@ -185,7 +185,7 @@ class DiffSBDDExpert(MoEExpertABC):
         x_coords, pocket_coords = self.model.ddpm.remove_mean_batch(
             x_sbdd[..., : self.model.ddpm.n_dims],
             xh_pocket[..., : self.model.ddpm.n_dims],
-            lig_mask,  # type: ignore
+            lig_mask,  # pyright: ignore[reportCallIssue]
             pocket_mask,
         )
         x_sbdd[..., : self.model.ddpm.n_dims] = x_coords
@@ -244,7 +244,7 @@ class DiffSBDDExpert(MoEExpertABC):
             x_lig, x_pocket = model.ddpm.remove_mean_batch(
                 x_lig,
                 x_pocket,
-                lig_mask,  # type: ignore
+                lig_mask,  # pyright: ignore[reportCallIssue]
                 pocket_mask,
             )
         model.ddpm.assert_mean_zero_with_mask(x_lig, lig_mask)

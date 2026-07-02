@@ -100,14 +100,14 @@ class GeoDiffExpert(MoEExpertABC):
             [
                 CountNodesPerGraph(),
                 AddHigherOrderEdges(
-                    order=self.model_config.model.edge_order  # type: ignore
+                    order=self.model_config.model.edge_order  # pyright: ignore[reportAttributeAccessIssue]
                 ),  # Offline edge augmentation;
             ]
         )
         data = make_inference_dataset([fragment_mol], transforms)[0]
 
         data_input = data.clone()
-        batch = repeat_data(data_input, batch_size).to(self.device)
+        batch = repeat_data(data_input, batch_size).to(self.device)  # pyright: ignore[reportAttributeAccessIssue]
         data_shape = (batch.num_nodes, 3)
 
         prepared_data = {
@@ -119,7 +119,7 @@ class GeoDiffExpert(MoEExpertABC):
             "data_shape": data_shape,
         }
         # Store the prepared data for inference
-        self._inference_context = GeoDiffInferenceContext(**prepared_data)  # type: ignore
+        self._inference_context = GeoDiffInferenceContext(**prepared_data)  # pyright: ignore[reportArgumentType]
         return prepared_data
 
     def score(
