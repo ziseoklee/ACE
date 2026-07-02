@@ -86,8 +86,6 @@ def build_exponent_list(
     for component_id, component_cfg in component_configs:
         exponent_cfg = exponent_by_component.pop(component_id, None)
         if exponent_cfg is None:
-            exponent_cfg = exponent_by_component.pop(component_cfg.name, None)
-        if exponent_cfg is None:
             raise ValueError(f"Missing exponent config for MoE component {component_id!r} ({component_cfg.name}).")
 
         exponent_list.append(_make_exponent_function(exponent_cfg.weight_fn, exponent_cfg))

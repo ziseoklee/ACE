@@ -1,3 +1,4 @@
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -21,12 +22,17 @@ class _BaseWeightConfig:
         metadata={"omegaconf_ignore": True},
     )
 
+    def _validate_common(self) -> None:
+        _validate_finite_config_value("omega", self.omega)
+
 
 @dataclass
 class ConstantWeightConfig(_BaseWeightConfig):
     name: str = field(init=False, default="ConstantWeight")
 
     def __post_init__(self):
+        self._validate_common()
+
         def _constant_weight(t: torch.Tensor) -> torch.Tensor:
             return self.omega * torch.ones_like(t)
 
@@ -39,6 +45,9 @@ class LinearIncreasingWeightConfig(_BaseWeightConfig):
     slope: float
 
     def __post_init__(self):
+        self._validate_common()
+        _validate_finite_config_value("slope", self.slope)
+
         def _linear_increasing_weight(t: torch.Tensor) -> torch.Tensor:
             return self.omega * self.slope * t
 
@@ -51,6 +60,9 @@ class LinearDecreasingWeightConfig(_BaseWeightConfig):
     slope: float
 
     def __post_init__(self):
+        self._validate_common()
+        _validate_finite_config_value("slope", self.slope)
+
         def _linear_decreasing_weight(t: torch.Tensor) -> torch.Tensor:
             return self.omega * self.slope * (1 - t)
 
@@ -65,6 +77,9 @@ class LambdaBumpWeightConfig(_BaseWeightConfig):
     slope: float
 
     def __post_init__(self):
+        self._validate_common()
+        _validate_finite_config_value("slope", self.slope)
+
         def _lambda_bump_weight(t: torch.Tensor) -> torch.Tensor:
             return self.omega * self.slope * (1 - torch.abs(2 * t - 1))
 
@@ -79,6 +94,9 @@ class VBumpWeightConfig(_BaseWeightConfig):
     slope: float
 
     def __post_init__(self):
+        self._validate_common()
+        _validate_finite_config_value("slope", self.slope)
+
         def _v_bump_weight(t: torch.Tensor) -> torch.Tensor:
             return self.omega * self.slope * torch.abs(2 * t - 1)
 
@@ -93,6 +111,9 @@ class QuadraticBumpWeightConfig(_BaseWeightConfig):
     slope: float
 
     def __post_init__(self):
+        self._validate_common()
+        _validate_finite_config_value("slope", self.slope)
+
         def _quadratic_bump_weight(t: torch.Tensor) -> torch.Tensor:
             return self.omega * self.slope * t * (1 - t)
 
@@ -114,9 +135,18 @@ class ACEBumpWeightConfig(_BaseWeightConfig):
     B2: float
 
     def __post_init__(self):
+        self._validate_common()
+        _validate_finite_config_value("B1", self.B1)
+        _validate_finite_config_value("B2", self.B2)
+
         def _ace_bump_weight(t: torch.Tensor) -> torch.Tensor:
             Q_t = t * (1 - t)  # Noqa: N806
             L_t = t  # Noqa: N806
             return self.omega + (self.B1 * Q_t + self.B2 * L_t)
 
         self.weight_function = _ace_bump_weight
+
+
+def _validate_finite_config_value(name: str, value: float) -> None:
+    if not math.isfinite(float(value)):
+        raise ValueError(f"Weight config value {name} must be finite.")
