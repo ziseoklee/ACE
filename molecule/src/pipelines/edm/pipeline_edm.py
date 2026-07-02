@@ -3,9 +3,17 @@ from __future__ import annotations
 import functools
 from typing import cast
 
-from configs.config_moe_component import EXPERT_EDM_GEOM_DRUG, EXPERT_EDM_QM9, NODE_SCOPE_LIGAND, SCHEDULER_EDM
+from configs.config_moe_component import NODE_SCOPE_LIGAND
 from experts.edm_expert import EDMExpert
 from pipelines.base import DataMask, ExpertPipeline
+from pipelines.edm.components import (
+    EDM_GEOM_DRUG_LIGAND,
+    EDM_QM9_FRAGMENT,
+    EDM_QM9_LIGAND,
+    EXPERT_EDM_GEOM_DRUG,
+    EXPERT_EDM_QM9,
+    SCHEDULER_EDM,
+)
 from sampling.moe_layout import DynamicMoELayout
 from sampling.path_factory import PaddedPathScheduler
 from sampling.sampler import PostprocessFn
@@ -17,6 +25,7 @@ class EDMPipeline(ExpertPipeline):
 
     expert_keys = (EXPERT_EDM_QM9, EXPERT_EDM_GEOM_DRUG)
     scheduler_keys = (SCHEDULER_EDM,)
+    component_configs = (EDM_QM9_FRAGMENT, EDM_QM9_LIGAND, EDM_GEOM_DRUG_LIGAND)
 
     # TODO: support both EDM-QM9 and EDM-GEOM-DRUG, but the latter is not yet implemented. For now, we only support EDM-QM9.
     def load_expert(self, *, device: str, component_config) -> EDMExpert:
@@ -53,7 +62,7 @@ class EDMPipeline(ExpertPipeline):
         component = component_runtime.config
         expert = cast(EDMExpert, component_runtime.expert)
         h_mask = layout.h_atom_type_mask_for_scope(component.node_scope)
-        # FIXME: This is a hack to avoid prostprocessing hydrogens twice when mixing two EDM experts.
+        # FIXME: This is a hack to avoid postprocessing hydrogens twice when mixing two EDM experts.
         if component.node_scope != NODE_SCOPE_LIGAND:
             h_mask = None
         return functools.partial(expert.postprocess, h_mask=h_mask)

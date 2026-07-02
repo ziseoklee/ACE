@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import cast
 
-from configs.config_moe_component import EXPERT_GEODIFF_QM9, SCHEDULER_GEODIFF
 from experts.geodiff_expert import GeoDiffExpert
 from pipelines.base import DataMask, ExpertPipeline
 from pipelines.expert_utils import (
@@ -10,6 +9,7 @@ from pipelines.expert_utils import (
     mol_atom_feature_point,
     validate_condition_mol_size,
 )
+from pipelines.geodiff.components import EXPERT_GEODIFF_QM9, GEODIFF_QM9_FRAGMENT, SCHEDULER_GEODIFF
 from sampling.moe_layout import DynamicMoELayout
 from sampling.path_factory import PaddedPathScheduler
 from sampling.scheduler import GeoDiffScheduler
@@ -20,6 +20,7 @@ class GeoDiffPipeline(ExpertPipeline):
 
     expert_keys = (EXPERT_GEODIFF_QM9,)
     scheduler_keys = (SCHEDULER_GEODIFF,)
+    component_configs = (GEODIFF_QM9_FRAGMENT,)
 
     def load_expert(self, *, device: str, component_config) -> GeoDiffExpert:
         return GeoDiffExpert.from_pretrained(device=device)

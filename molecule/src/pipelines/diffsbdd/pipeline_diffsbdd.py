@@ -3,15 +3,15 @@ from __future__ import annotations
 import functools
 from typing import cast
 
-from configs.config_moe_component import (
-    CONDITION_POCKET,
-    EXPERT_DIFFSBDD_CROSSDOCKED_FULLATOM_COND,
-    NODE_SCOPE_LIGAND,
-    SCHEDULER_DIFFSBDD,
-)
+from configs.config_moe_component import CONDITION_POCKET, NODE_SCOPE_LIGAND
 from experts.base_expert import SBDDExpert
 from experts.diffsbdd_expert import DiffSBDDExpert
 from pipelines.base import DataMask, ExpertPipeline
+from pipelines.diffsbdd.components import (
+    DIFFSBDD_CROSSDOCKED_FULLATOM_COND,
+    EXPERT_DIFFSBDD_CROSSDOCKED_FULLATOM_COND,
+    SCHEDULER_DIFFSBDD,
+)
 from pipelines.expert_utils import require_condition_key
 from sampling.moe_layout import DynamicMoELayout
 from sampling.path_factory import PaddedPathScheduler
@@ -24,6 +24,7 @@ class DiffSBDDPipeline(ExpertPipeline):
 
     expert_keys = (EXPERT_DIFFSBDD_CROSSDOCKED_FULLATOM_COND,)
     scheduler_keys = (SCHEDULER_DIFFSBDD,)
+    component_configs = (DIFFSBDD_CROSSDOCKED_FULLATOM_COND,)
 
     def load_expert(self, *, device: str, component_config) -> DiffSBDDExpert:
         return DiffSBDDExpert.from_pretrained(device=device)

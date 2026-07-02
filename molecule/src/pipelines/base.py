@@ -24,6 +24,7 @@ class ExpertPipeline(ABC):
 
     expert_keys: tuple[str, ...]
     scheduler_keys: tuple[str, ...]
+    component_configs: tuple[MoEComponentConfig, ...] = ()
 
     @abstractmethod
     def load_expert(self, *, device: str, component_config: MoEComponentConfig) -> MoEExpertABC:

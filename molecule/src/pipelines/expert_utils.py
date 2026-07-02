@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Final, Protocol
 
 import torch
 from rdkit.Chem import Mol
@@ -14,7 +14,7 @@ from sampling.moe_layout import COORDS_DIM, DynamicMoELayout
 
 
 class FragmentCondition(Protocol):
-    fragment: Mol
+    fragment: Final[Mol]
 
 
 def mol_atom_type_indices(mol: Mol, layout: DynamicMoELayout, device: str) -> torch.Tensor:

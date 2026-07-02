@@ -42,6 +42,14 @@ class ExpertPipelineRegistry:
             ) from exc
         return pipeline.make_scheduler(scheduler_key)
 
+    @property
+    def expert_keys(self) -> tuple[str, ...]:
+        return tuple(sorted(self._pipelines_by_expert_key))
+
+    @property
+    def scheduler_keys(self) -> tuple[str, ...]:
+        return tuple(sorted(self._pipelines_by_scheduler_key))
+
 
 def get_default_pipeline_registry() -> ExpertPipelineRegistry:
     from pipelines.diffsbdd.pipeline_diffsbdd import DiffSBDDPipeline
@@ -53,3 +61,11 @@ def get_default_pipeline_registry() -> ExpertPipelineRegistry:
     registry.register(GeoDiffPipeline())
     registry.register(DiffSBDDPipeline())
     return registry
+
+
+def get_supported_scheduler_keys() -> tuple[str, ...]:
+    return get_default_pipeline_registry().scheduler_keys
+
+
+def get_supported_expert_keys() -> tuple[str, ...]:
+    return get_default_pipeline_registry().expert_keys

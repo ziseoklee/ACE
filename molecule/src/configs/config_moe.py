@@ -1,7 +1,7 @@
 import math
 from dataclasses import dataclass
 
-from .config_moe_component import SUPPORTED_SCHEDULER_KEYS, MoEComponentConfig
+from .config_moe_component import MoEComponentConfig
 from .config_weight import _BaseWeightConfig
 
 
@@ -66,8 +66,11 @@ class MoEConfig:
         if duplicate_component_names:
             raise ValueError(f"MoE component names must be unique: {duplicate_component_names}.")
 
-        if self.global_scheduler_key not in SUPPORTED_SCHEDULER_KEYS:
+        from pipelines.registry import get_supported_scheduler_keys
+
+        supported_scheduler_keys = get_supported_scheduler_keys()
+        if self.global_scheduler_key not in supported_scheduler_keys:
             raise ValueError(
                 f"Unsupported MoE global_scheduler_key {self.global_scheduler_key!r}. "
-                f"Supported scheduler keys: {sorted(SUPPORTED_SCHEDULER_KEYS)}."
+                f"Supported scheduler keys: {sorted(supported_scheduler_keys)}."
             )
