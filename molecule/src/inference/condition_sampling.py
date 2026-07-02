@@ -8,22 +8,24 @@ import torch
 from rdkit import Chem
 from rdkit.Chem import Mol
 
+from configs.config_moe_component import (
+    CONDITION_FRAGMENT_MOL,
+    CONDITION_POCKET,
+    FIXED_ATOM_TYPE_SOURCE_FRAGMENT_MOL,
+    NODE_SCOPE_LIGAND,
+    MoEComponentConfig,
+)
 from configs.config_sampler import _BaseSamplerConfig
+from experts import DiffSBDDExpert, EDMExpert, GeoDiffExpert
 from experts.base_expert import SBDDExpert
-from inference.sampling_runtime import SamplingRuntime, seed_everything
+from inference.sampling_runtime import ComponentRuntime, SamplingRuntime, seed_everything
 from postprocessing import MoleculeBuilder
 from sampling.moe_layout import (
-    ATOM_TYPE_DIM,
-    ATOM_TYPE_INDEX,
-    NUCLEAR_CHARGE_FEATURE_DIM,
-    CrossDockedMoELayout,
-    CrossDockedMoEMasks,
+    COORDS_DIM,
+    DynamicMoELayout,
 )
 from sampling.path_factory import (
-    build_diffsbdd_ligand_path,
-    build_edm_fragment_path,
-    build_edm_ligand_path,
-    build_geodiff_fragment_path,
+    build_padded_expert_path,
     make_zero_auxiliary_point,
 )
 from sampling.probability_path import MoEProbabilityPath
@@ -33,26 +35,35 @@ from utils.molecule_drawing import molecule_to_topology_png
 logger = logging.getLogger(__name__)
 
 
-def _fragment_atom_type_indices(fragment: Mol, device: str) -> torch.Tensor:
+def _mol_atom_type_indices(mol: Mol, layout: DynamicMoELayout, device: str) -> torch.Tensor:
     atom_type_indices = []
-    for atom in fragment.GetAtoms():
+    for atom in mol.GetAtoms():
         symbol = atom.GetSymbol()
-        if symbol not in ATOM_TYPE_INDEX:
-            supported_atoms = ", ".join(ATOM_TYPE_INDEX)
-            raise ValueError(f"Unsupported fragment atom type {symbol!r}. Supported atom types: {supported_atoms}.")
-        atom_type_indices.append(ATOM_TYPE_INDEX[symbol])
+        if symbol not in layout.atom_type_index:
+            supported_atoms = ", ".join(layout.atom_type_index)
+            raise ValueError(f"Unsupported atom type {symbol!r}. Supported atom types: {supported_atoms}.")
+        atom_type_indices.append(layout.atom_type_index[symbol])
 
     return torch.tensor(atom_type_indices, device=device, dtype=torch.long)
 
 
-def _fragment_atom_feature_point(fragment: Mol, device: str, atom_type_value: float) -> torch.Tensor:
-    point = torch.zeros(fragment.GetNumAtoms(), ATOM_TYPE_DIM + NUCLEAR_CHARGE_FEATURE_DIM, device=device)
-    atom_type_indices = _fragment_atom_type_indices(fragment, device=device)
-    point[torch.arange(fragment.GetNumAtoms(), device=device), atom_type_indices] = atom_type_value
+def _mol_atom_feature_point(
+    mol: Mol,
+    layout: DynamicMoELayout,
+    auxiliary_mask: torch.Tensor,
+    device: str,
+    atom_type_value: float,
+) -> torch.Tensor:
+    point = torch.zeros(mol.GetNumAtoms(), layout.node_feature_dim, device=device)
+    atom_type_indices = _mol_atom_type_indices(mol, layout=layout, device=device)
+    point[
+        torch.arange(mol.GetNumAtoms(), device=device),
+        COORDS_DIM + atom_type_indices,
+    ] = atom_type_value
 
     # The last auxiliary feature is EDM's integer nuclear-charge feature.
     # It is left as zero padding because molecule construction uses atom symbols, not this feature.
-    return point
+    return point.flatten()[auxiliary_mask].reshape(mol.GetNumAtoms(), -1)
 
 
 @dataclass(frozen=True)
@@ -67,9 +78,9 @@ class SamplingCondition:
 @dataclass
 class ConditionProbabilityPath:
     path: MoEProbabilityPath
-    masks: CrossDockedMoEMasks
+    layout: DynamicMoELayout
     fragment_atom_types: torch.Tensor
-    sbdd_expert: SBDDExpert
+    sbdd_expert: SBDDExpert | None
     interleave_fns: list[InterleaveFn]
     postprocess_fns: list[PostprocessFn]
 
@@ -93,105 +104,212 @@ def build_condition_probability_path(
     num_ligand_atoms = resolve_num_ligand_atoms(condition)
     num_fragment_atoms = condition.fragment.GetNumAtoms()
 
-    masks = CrossDockedMoELayout(
+    layout = DynamicMoELayout.from_components(
+        [component.config for component in runtime.components],
         fragment_size=num_fragment_atoms,
         ligand_size=num_ligand_atoms,
         device=device,
-    ).masks()
-
-    # 1. EDM fragment expert
-    logger.info("  Building EDM probability path for fragment part generation...")
-    runtime.edm_fragment.prepare_data(batch_size, num_fragment_atoms)
-    q_edm_fragment_pad = build_edm_fragment_path(
-        expert=runtime.edm_fragment,
-        scheduler=runtime.scheduler_edm,
-        masks=masks,
-        padding_point=make_zero_auxiliary_point(num_fragment_atoms, masks.edm_fragment_padding, device=device),
-        device=device,
     )
+    logger.info("Dynamic MoE atom layout: %s", layout.atom_type_index)
 
-    # 2. EDM ligand expert
-    logger.info("  Building EDM probability path for whole molecule generation...")
-    runtime.edm_ligand.prepare_data(batch_size, num_ligand_atoms)
-    q_edm_ligand_pad = build_edm_ligand_path(
-        expert=runtime.edm_ligand,
-        scheduler=runtime.scheduler_edm,
-        masks=masks,
-        padding_point=make_zero_auxiliary_point(num_ligand_atoms, masks.edm_ligand_padding, device=device),
-        device=device,
-    )
+    q_list = []
+    mask_list = []
+    interleave_fns: list[InterleaveFn] = []
+    postprocess_fns: list[PostprocessFn] = []
+    sbdd_expert: SBDDExpert | None = None
+    fragment_atom_types = _mol_atom_type_indices(condition.fragment, layout=layout, device=device)
 
-    # 3. GeoDiff fragment conformer expert
-    logger.info("  Building GeoDiff probability path for fragment part conformer generation...")
-    runtime.geodiff.prepare_data(batch_size, condition.fragment)
+    for component_runtime in runtime.components:
+        component = component_runtime.config
+        logger.info("  Building probability path for component %s...", component.name)
+        _prepare_component_data(
+            component_runtime=component_runtime,
+            condition=condition,
+            layout=layout,
+            batch_size=batch_size,
+            num_ligand_atoms=num_ligand_atoms,
+        )
 
-    fragment_atom_types = _fragment_atom_type_indices(condition.fragment, device=device)
-    atom_type_value = 1.0 / float(runtime.edm_fragment.model.norm_values[1])
-    geodiff_atom_feature_point = _fragment_atom_feature_point(
-        condition.fragment,
-        device=device,
-        atom_type_value=atom_type_value,
-    )
-    q_geodiff_pad = build_geodiff_fragment_path(
-        expert=runtime.geodiff,
-        scheduler=runtime.scheduler_geodiff,
-        masks=masks,
-        atom_feature_point=geodiff_atom_feature_point,
-        device=device,
-    )
+        active_mask = layout.active_mask_for_component(component)
+        auxiliary_mask = layout.auxiliary_mask_for_component(component)
+        auxiliary_point = _component_auxiliary_point(
+            component_runtime=component_runtime,
+            condition=condition,
+            runtime=runtime,
+            layout=layout,
+            auxiliary_mask=auxiliary_mask,
+            device=device,
+        )
+        q_list.append(
+            build_padded_expert_path(
+                expert=component_runtime.expert,
+                scheduler=component_runtime.scheduler,
+                active_mask=active_mask,
+                auxiliary_mask=auxiliary_mask,
+                auxiliary_point=auxiliary_point,
+                device=device,
+            )
+        )
+        mask_list.append(layout.state_mask_for_scope(component.node_scope))
+        interleave_fns.append(_component_interleave_fn(component_runtime, active_mask))
+        postprocess_fns.append(_component_postprocess_fn(component_runtime, layout, active_mask))
 
-    # 4. DiffSBDD pocket-conditioned ligand expert
-    logger.info("  Building DiffSBDD probability path for pocket conditioned whole molecule generation...")
-    runtime.diffsbdd.prepare_data(
-        batch_size,
-        num_ligand_atoms,
-        condition.protein_pocket_pdb_path,
-        condition.ref_ligand,
-    )
-    q_sbdd_pad = build_diffsbdd_ligand_path(
-        expert=runtime.diffsbdd,
-        scheduler=runtime.scheduler_sbdd,
-        masks=masks,
-        padding_point=make_zero_auxiliary_point(num_ligand_atoms, masks.diffsbdd_ligand_padding, device=device),
-        device=device,
-    )
+        # FIXME: This does not gracefully handle multiple DiffSBDD components. We assume that there is at most one DiffSBDD component in the runtime.
+        if isinstance(component_runtime.expert, DiffSBDDExpert):
+            sbdd_expert = component_runtime.expert
 
+    global_scheduler = _select_global_scheduler(runtime)
     moe_probability_path = MoEProbabilityPath(
-        scheduler=runtime.scheduler_geodiff,
-        q_list=[q_edm_fragment_pad, q_edm_ligand_pad, q_geodiff_pad, q_sbdd_pad],
-        mask_list=[
-            masks.fragment_state_in_ligand,
-            masks.ligand_state,
-            masks.fragment_state_in_ligand,
-            masks.ligand_state,
-        ],
+        scheduler=global_scheduler,
+        q_list=q_list,
+        mask_list=mask_list,
         exponent_list=runtime.exponent_list,
-        sample_size=masks.sample_size,
+        sample_size=layout.sample_size,
+        node_feature_dim=layout.node_feature_dim,
     )
-
-    interleave_fns = [
-        runtime.edm_fragment.interleave,
-        runtime.edm_ligand.interleave,
-        runtime.geodiff.interleave,
-        functools.partial(runtime.diffsbdd.interleave, mask=masks.diffsbdd_ligand_xh),
-    ]
-    postprocess_fns = [
-        # FIXME: Passing h_mask through a generic postprocess hook is a layout-specific workaround.
-        # Refactor expert postprocessing to declare owned output channels explicitly.
-        functools.partial(runtime.edm_fragment.postprocess, h_mask=None),
-        functools.partial(runtime.edm_ligand.postprocess, h_mask=masks.edm_ligand_h_atom_type),
-        runtime.geodiff.postprocess,
-        functools.partial(runtime.diffsbdd.postprocess, mask=masks.diffsbdd_ligand_xh),
-    ]
 
     return ConditionProbabilityPath(
         path=moe_probability_path,
-        masks=masks,
+        layout=layout,
         fragment_atom_types=fragment_atom_types,
-        sbdd_expert=runtime.diffsbdd,
+        sbdd_expert=sbdd_expert,
         interleave_fns=interleave_fns,
         postprocess_fns=postprocess_fns,
     )
+
+
+def _prepare_component_data(
+    *,
+    component_runtime: ComponentRuntime,
+    condition: SamplingCondition,
+    layout: DynamicMoELayout,
+    batch_size: int,
+    num_ligand_atoms: int,
+) -> None:
+    component = component_runtime.config
+    expert = component_runtime.expert
+    num_nodes = layout.num_nodes_for_scope(component.node_scope)
+
+    if isinstance(expert, EDMExpert):
+        expert.prepare_data(batch_size, num_nodes)
+        return
+
+    if isinstance(expert, GeoDiffExpert):
+        if component.fixed_atom_type_source is None:
+            raise ValueError(
+                f"GeoDiff component {component.name} must define fixed_atom_type_source because GeoDiff "
+                "scores coordinates conditioned on a fixed molecular graph and atom types."
+            )
+        fixed_mol = _condition_mol_for_source(component, condition, component.fixed_atom_type_source)
+        _validate_condition_mol_size(component, fixed_mol, expected_num_nodes=num_nodes)
+        expert.prepare_data(batch_size, fixed_mol)
+        return
+
+    if isinstance(expert, DiffSBDDExpert):
+        _require_condition_key(component, CONDITION_POCKET)
+        if component.node_scope != NODE_SCOPE_LIGAND:
+            raise ValueError(f"DiffSBDD component {component.name} must use node_scope={NODE_SCOPE_LIGAND!r}.")
+        expert.prepare_data(
+            batch_size,
+            num_ligand_atoms,
+            condition.protein_pocket_pdb_path,
+            condition.ref_ligand,
+        )
+        return
+
+    raise TypeError(f"Unsupported expert type for component {component.name}: {type(expert).__name__}.")
+
+
+def _component_auxiliary_point(
+    *,
+    component_runtime: ComponentRuntime,
+    condition: SamplingCondition,
+    runtime: SamplingRuntime,
+    layout: DynamicMoELayout,
+    auxiliary_mask: torch.Tensor,
+    device: str,
+) -> torch.Tensor:
+    component = component_runtime.config
+    num_nodes = layout.num_nodes_for_scope(component.node_scope)
+    if component.fixed_atom_type_source is not None:
+        fixed_mol = _condition_mol_for_source(component, condition, component.fixed_atom_type_source)
+        _validate_condition_mol_size(component, fixed_mol, expected_num_nodes=num_nodes)
+        return _mol_atom_feature_point(
+            fixed_mol,
+            layout=layout,
+            auxiliary_mask=auxiliary_mask,
+            device=device,
+            atom_type_value=_atom_type_value(runtime),
+        )
+
+    return make_zero_auxiliary_point(num_nodes, auxiliary_mask, device=device)
+
+
+def _component_interleave_fn(
+    component_runtime: ComponentRuntime,
+    active_mask: torch.Tensor,
+) -> InterleaveFn:
+    expert = component_runtime.expert
+    if isinstance(expert, DiffSBDDExpert):
+        return functools.partial(expert.interleave, mask=active_mask)
+    return expert.interleave
+
+
+def _component_postprocess_fn(
+    component_runtime: ComponentRuntime,
+    layout: DynamicMoELayout,
+    active_mask: torch.Tensor,
+) -> PostprocessFn:
+    component = component_runtime.config
+    expert = component_runtime.expert
+
+    if isinstance(expert, EDMExpert):
+        h_mask = layout.h_atom_type_mask_for_scope(component.node_scope)
+        if component.node_scope != NODE_SCOPE_LIGAND:
+            h_mask = None
+        return functools.partial(expert.postprocess, h_mask=h_mask)
+
+    if isinstance(expert, DiffSBDDExpert):
+        return functools.partial(expert.postprocess, mask=active_mask)
+
+    return expert.postprocess
+
+
+def _select_global_scheduler(runtime: SamplingRuntime):
+    return runtime.global_scheduler
+
+
+def _atom_type_value(runtime: SamplingRuntime) -> float:
+    for component_runtime in runtime.components:
+        expert = component_runtime.expert
+        if isinstance(expert, EDMExpert):
+            return 1.0 / float(expert.model.norm_values[1])
+    return 1.0
+
+
+def _condition_mol_for_source(component: MoEComponentConfig, condition: SamplingCondition, source: str) -> Mol:
+    if source == FIXED_ATOM_TYPE_SOURCE_FRAGMENT_MOL:
+        _require_condition_key(component, CONDITION_FRAGMENT_MOL)
+        return condition.fragment
+
+    raise ValueError(f"Unsupported fixed atom-type source {source!r} for component {component.name}.")
+
+
+def _validate_condition_mol_size(component: MoEComponentConfig, mol: Mol, expected_num_nodes: int) -> None:
+    actual_num_nodes = mol.GetNumAtoms()
+    if actual_num_nodes != expected_num_nodes:
+        raise ValueError(
+            f"Component {component.name} uses node_scope={component.node_scope!r} with {expected_num_nodes} nodes, "
+            f"but fixed atom/topology source {component.fixed_atom_type_source!r} has {actual_num_nodes} atoms."
+        )
+
+
+def _require_condition_key(component: MoEComponentConfig, condition_key: str) -> None:
+    if condition_key not in component.condition_keys:
+        raise ValueError(
+            f"Component {component.name} requires condition key {condition_key!r}, "
+            f"but its condition_keys are {component.condition_keys}."
+        )
 
 
 def sample_condition(
@@ -222,10 +340,13 @@ def sample_condition(
     logger.info("Converting atomic point-cloud features to XYZ blocks and RDKit molecules...")
     num_ligand_atoms = resolve_num_ligand_atoms(condition)
     batch_size = sampler_cfg.batch_size
-    xh_lig = samples[:, condition_path.masks.ligand_state].reshape(batch_size, num_ligand_atoms, -1)
+    ligand_state_mask = condition_path.layout.state_mask_for_scope(NODE_SCOPE_LIGAND)
+    xh_lig = samples[:, ligand_state_mask].reshape(batch_size, num_ligand_atoms, condition_path.layout.node_feature_dim)
     output_xyz_blocks = MoleculeBuilder.xyz_blocks_from_batch(
         xh_lig,
         fragment_atom_types=condition_path.fragment_atom_types,
+        atom_type_decoder=condition_path.layout.atom_type_decoder,
+        atom_type_dim=condition_path.layout.atom_type_dim,
     )
     output_molecules = MoleculeBuilder.build_mols_from_xyz_blocks(output_xyz_blocks)
 

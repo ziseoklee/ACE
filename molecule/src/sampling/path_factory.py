@@ -4,7 +4,6 @@ import torch
 from jaxtyping import Bool, Float
 
 from sampling.distributions import MarginalScheduler, PointMassDistribution
-from sampling.moe_layout import CrossDockedMoEMasks
 from sampling.probability_path import PaddedProbabilityPath, ProbabilityPath, SDEScheduler
 
 DataMask = Bool[torch.Tensor, "data"]  # noqa: F821
@@ -66,82 +65,6 @@ def build_padded_expert_path(
     auxiliary_path = ProbabilityPath(scheduler, auxiliary_score, reverse=reverse)
 
     return PaddedProbabilityPath([main_path, auxiliary_path], [active_mask, auxiliary_mask])
-
-
-def build_geodiff_fragment_path(
-    *,
-    expert: ScoringExpert,
-    scheduler: PaddedPathScheduler,
-    masks: CrossDockedMoEMasks,
-    atom_feature_point: FragmentFeatureMatrix,
-    device: str,
-) -> PaddedProbabilityPath:
-    """Build the GeoDiff fragment coordinate path with fixed fragment atom types."""
-    return build_padded_expert_path(
-        expert=expert,
-        scheduler=scheduler,
-        active_mask=masks.geodiff_fragment_coords,
-        auxiliary_mask=masks.geodiff_fragment_atom_features,
-        auxiliary_point=atom_feature_point,
-        device=device,
-    )
-
-
-def build_edm_fragment_path(
-    *,
-    expert: ScoringExpert,
-    scheduler: PaddedPathScheduler,
-    masks: CrossDockedMoEMasks,
-    padding_point: FragmentFeatureMatrix,
-    device: str,
-) -> PaddedProbabilityPath:
-    """Build the fragment EDM path with a fixed padding point."""
-    return build_padded_expert_path(
-        expert=expert,
-        scheduler=scheduler,
-        active_mask=masks.edm_fragment_xh,
-        auxiliary_mask=masks.edm_fragment_padding,
-        auxiliary_point=padding_point,
-        device=device,
-    )
-
-
-def build_edm_ligand_path(
-    *,
-    expert: ScoringExpert,
-    scheduler: PaddedPathScheduler,
-    masks: CrossDockedMoEMasks,
-    padding_point: LigandFeatureMatrix,
-    device: str,
-) -> PaddedProbabilityPath:
-    """Build the whole-ligand EDM path with a fixed padding point."""
-    return build_padded_expert_path(
-        expert=expert,
-        scheduler=scheduler,
-        active_mask=masks.edm_ligand_xh,
-        auxiliary_mask=masks.edm_ligand_padding,
-        auxiliary_point=padding_point,
-        device=device,
-    )
-
-
-def build_diffsbdd_ligand_path(
-    *,
-    expert: ScoringExpert,
-    scheduler: PaddedPathScheduler,
-    masks: CrossDockedMoEMasks,
-    padding_point: LigandFeatureMatrix,
-    device: str,
-) -> PaddedProbabilityPath:
-    """Build the DiffSBDD ligand path with a fixed padding point."""
-    return build_padded_expert_path(
-        expert=expert,
-        scheduler=scheduler,
-        active_mask=masks.diffsbdd_ligand_xh,
-        auxiliary_mask=masks.diffsbdd_ligand_padding,
-        auxiliary_point=padding_point,
-        device=device,
-    )
 
 
 def _validate_masks(active_mask: DataMask, auxiliary_mask: DataMask) -> None:

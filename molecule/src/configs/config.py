@@ -1,6 +1,7 @@
 from hydra.core.config_store import ConfigStore
 
 from .config_benchmark import CrossDocked2020BenchConfig
+from .config_moe import MoEConfig
 from .config_moe_component import (
     DIFFSBDD_CROSSDOCKED_FULLATOM_COND,
     EDM_GEOM_DRUG,
@@ -25,6 +26,9 @@ cs = ConfigStore.instance()
 
 # Benchmark configs
 cs.store(group="benchmark", name="CrossDocked2020BenchConfig", node=CrossDocked2020BenchConfig)
+
+# MoE composition configs
+cs.store(group="moe", name="DefaultMoE", node=MoEConfig)
 
 # Sampler configs
 cs.store(group="sampler", name="NRSampler", node=NRSamplerConfig)

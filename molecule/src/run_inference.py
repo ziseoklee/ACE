@@ -1,5 +1,6 @@
 import logging
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
@@ -10,15 +11,19 @@ from rdkit import Chem
 from rdkit.Chem.rdchem import Mol
 
 from configs import config as _config_registry  # Noqa: F401
+from configs.config_moe import MoEConfig, MoEExponentConfig
 from configs.config_sampler import _BaseSamplerConfig
-from configs.config_weight import _BaseWeightConfig
 from inference.condition_sampling import (
     SamplingCondition,
     resolve_num_ligand_atoms,
     sample_condition,
     write_sampling_result,
 )
-from inference.sampling_runtime import load_sampling_runtime, log_exponent_list
+from inference.sampling_runtime import (
+    component_configs_from_hydra,
+    load_sampling_runtime,
+    log_exponent_list,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -26,10 +31,16 @@ logger = logging.getLogger(__name__)
 
 def run_inference(cfg: DictConfig, output_dir: Path) -> None:
     sampler_cfg = cast(_BaseSamplerConfig, OmegaConf.to_object(cfg.sampler))
-    weight_cfg = cast(_BaseWeightConfig, OmegaConf.to_object(cfg.weight))
+    moe_cfg = cast(MoEConfig, OmegaConf.to_object(cfg.moe))
 
-    runtime = load_sampling_runtime(weight_cfg=weight_cfg, device=sampler_cfg.device)
-    log_exponent_list(runtime.exponent_list)
+    component_configs = component_configs_from_hydra(moe_cfg.components)
+    runtime = load_sampling_runtime(
+        device=sampler_cfg.device,
+        component_configs=component_configs,
+        global_scheduler_key=moe_cfg.global_scheduler_key,
+        exponent_configs=moe_cfg.exponents,
+    )
+    log_exponent_list(runtime.exponent_list, [component.component_id for component in runtime.components])
 
     protein_pocket_pdb_path = Path(cfg.data.protein_pocket_pdb_path)
     fragment_sdf_path = Path(cfg.data.fragment_sdf_path)
@@ -74,7 +85,7 @@ def run_inference(cfg: DictConfig, output_dir: Path) -> None:
     logger.info(
         "Running inference with sampler %s and weight %s on device %s. Output will be saved to %s",
         sampler_cfg.name,
-        weight_cfg.name,
+        _format_exponent_weight_configs(moe_cfg.exponents),
         sampler_cfg.device,
         inference_output_dir,
     )
@@ -88,6 +99,12 @@ def run_inference(cfg: DictConfig, output_dir: Path) -> None:
     num_valid_samples = sum(sample is not None for sample in result.samples)
     logger.info("Generated %d valid samples.", num_valid_samples)
     logger.info("Inference completed successfully.")
+
+
+def _format_exponent_weight_configs(exponents: Mapping[str, MoEExponentConfig]) -> str:
+    return ", ".join(
+        f"{component_id}:{exponent_cfg.weight_fn.name}" for component_id, exponent_cfg in exponents.items()
+    )
 
 
 @hydra.main(config_path="configs", config_name="inference", version_base=None)

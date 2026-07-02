@@ -1,6 +1,14 @@
 defaults:
-  - sampler: NRSampler
-  - weight: ConstantWeight
+  - sampler: ACESampler
+  - moe: DefaultMoE
+  - weight@moe.exponents.edm_fragment.weight_fn: ConstantWeight
+  - weight@moe.exponents.edm_ligand.weight_fn: ConstantWeight
+  - weight@moe.exponents.geodiff_fragment.weight_fn: ConstantWeight
+  - weight@moe.exponents.diffsbdd.weight_fn: ACEBumpWeight
+  - moe_component@moe.components.edm_fragment: EDM_QM9_FRAGMENT
+  - moe_component@moe.components.edm_ligand: EDM_QM9_LIGAND
+  - moe_component@moe.components.geodiff_fragment: GEODIFF_QM9_FRAGMENT
+  - moe_component@moe.components.diffsbdd: DIFFSBDD_CROSSDOCKED_FULLATOM_COND
   - _self_
 
 data:
@@ -10,9 +18,33 @@ data:
   # If null, use the reference ligand atom count. Otherwise, sample a ligand with this many atoms.
   num_ligand_atoms: null
 
-# With frozen structured configs, set weight.omega via CLI overrides.
-weight:
+# Shared omega and ACE exponent definitions.
+moe:
   omega: ???
+  global_scheduler_key: GEODIFF
+  exponents:
+    edm_fragment:
+      weight_scale: -1.0
+      constant: 0.0
+      weight_fn:
+        omega: ${moe.omega}
+    edm_ligand:
+      weight_scale: -1.0
+      constant: 1.0
+      weight_fn:
+        omega: ${moe.omega}
+    geodiff_fragment:
+      weight_scale: 1.0
+      constant: 0.0
+      weight_fn:
+        omega: ${moe.omega}
+    diffsbdd:
+      weight_scale: 1.0
+      constant: 0.0
+      weight_fn:
+        omega: ${moe.omega}
+        B1: 30
+        B2: 0.336
 
 # If null, will use Hydra's default output directory. Otherwise, specify a custom output directory.
 output_dir: null

@@ -1,7 +1,7 @@
 import copy
 import logging
 import shutil
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import fields, is_dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -17,10 +17,15 @@ from tqdm import tqdm
 
 from configs import config as _config_registry  # Noqa: F401
 from configs.config_benchmark import CrossDocked2020BenchConfig
+from configs.config_moe import MoEConfig, MoEExponentConfig
 from configs.config_sampler import _BaseSamplerConfig
 from configs.config_weight import _BaseWeightConfig
 from inference.condition_sampling import SamplingCondition, sample_condition
-from inference.sampling_runtime import load_sampling_runtime, log_exponent_list
+from inference.sampling_runtime import (
+    component_configs_from_hydra,
+    load_sampling_runtime,
+    log_exponent_list,
+)
 from utils.molecule_drawing import molecule_to_topology_png
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -32,13 +37,14 @@ MAX_EDM_LIGAND_ATOMS = 29
 def run_crossdocked_inference(cfg: DictConfig, output_dir: Path) -> None:
     benchmark_cfg = cast(CrossDocked2020BenchConfig, OmegaConf.to_object(cfg.benchmark))
     sampler_cfg = cast(_BaseSamplerConfig, OmegaConf.to_object(cfg.sampler))
-    weight_cfg = cast(_BaseWeightConfig, OmegaConf.to_object(cfg.weight))
+    moe_cfg = cast(MoEConfig, OmegaConf.to_object(cfg.moe))
 
     data_root = Path(benchmark_cfg.data_root)
     protein_dir = data_root / "crossdocked_pocket10"
     processed_data_dir = data_root / "processed"
     save_root = Path(benchmark_cfg.save_dir)
-    run_save_dir = _make_run_save_dir(save_root, sampler_cfg, weight_cfg)
+    component_configs = component_configs_from_hydra(moe_cfg.components)
+    run_save_dir = _make_run_save_dir(save_root, sampler_cfg, moe_cfg)
     inference_save_dir = run_save_dir / "inference"
 
     logger.info("Hydra output directory: %s", output_dir)
@@ -47,8 +53,13 @@ def run_crossdocked_inference(cfg: DictConfig, output_dir: Path) -> None:
     logger.info("CrossDocked2020 run save directory: %s", run_save_dir)
     logger.info("CrossDocked2020 inference save directory: %s", inference_save_dir)
 
-    runtime = load_sampling_runtime(weight_cfg=weight_cfg, device=sampler_cfg.device)
-    log_exponent_list(runtime.exponent_list)
+    runtime = load_sampling_runtime(
+        device=sampler_cfg.device,
+        component_configs=component_configs,
+        global_scheduler_key=moe_cfg.global_scheduler_key,
+        exponent_configs=moe_cfg.exponents,
+    )
+    log_exponent_list(runtime.exponent_list, [component.component_id for component in runtime.components])
 
     task_path_list = _load_task_paths(processed_data_dir)
     logger.info("Loaded %d CrossDocked2020 tasks from %s", len(task_path_list), processed_data_dir)
@@ -96,7 +107,7 @@ def run_crossdocked_inference(cfg: DictConfig, output_dir: Path) -> None:
             "Running inference for task %s with sampler %s and weight %s",
             task_path.stem,
             sampler_cfg.name,
-            weight_cfg.name,
+            _format_exponent_weight_configs(moe_cfg.exponents),
         )
         xyz_blocks: list[str] = []
         generated_samples: list[Mol | None] = []
@@ -143,10 +154,10 @@ def _sampler_cfg_with_seed(sampler_cfg: _BaseSamplerConfig, seed: int) -> _BaseS
 def _make_run_save_dir(
     save_root: Path,
     sampler_cfg: _BaseSamplerConfig,
-    weight_cfg: _BaseWeightConfig,
+    moe_cfg: MoEConfig,
 ) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    prefix = f"{_sampler_slug(sampler_cfg)}__{_weight_slug(weight_cfg)}"
+    prefix = f"{_sampler_slug(sampler_cfg)}__{_moe_weight_slug(moe_cfg)}"
     run_save_dir = save_root / f"{prefix}_{timestamp}"
 
     suffix = 1
@@ -168,14 +179,31 @@ def _sampler_slug(sampler_cfg: _BaseSamplerConfig) -> str:
     return "_".join(parts)
 
 
+def _moe_weight_slug(moe_cfg: MoEConfig) -> str:
+    parts = [f"omega{_path_token(moe_cfg.omega)}"]
+    parts.extend(
+        f"{component_id}-{_weight_slug(exponent_cfg.weight_fn)}"
+        for component_id, exponent_cfg in moe_cfg.exponents.items()
+    )
+    return "__".join(parts)
+
+
 def _weight_slug(weight_cfg: _BaseWeightConfig) -> str:
     parts = [weight_cfg.name]
     if is_dataclass(weight_cfg):
         for field in fields(weight_cfg):
             if not field.init:
                 continue
+            if field.name == "omega":
+                continue
             parts.append(f"{field.name}{_path_token(getattr(weight_cfg, field.name))}")
     return "_".join(parts)
+
+
+def _format_exponent_weight_configs(exponents: Mapping[str, MoEExponentConfig]) -> str:
+    return ", ".join(
+        f"{component_id}:{exponent_cfg.weight_fn.name}" for component_id, exponent_cfg in exponents.items()
+    )
 
 
 def _path_token(value: object) -> str:

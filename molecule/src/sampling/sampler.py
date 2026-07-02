@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from configs.config_sampler import _BaseSamplerConfig
 from experts.base_expert import SBDDExpert
-from sampling.moe_layout import COORDS_DIM, NODE_FEATURE_DIM
+from sampling.moe_layout import COORDS_DIM
 from sampling.probability_path import MoEProbabilityPath
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ class MoEPDESampler:
     @staticmethod
     def initialize_particles(
         moe_probability_path: MoEProbabilityPath,
-        sbdd_expert: SBDDExpert,
+        sbdd_expert: SBDDExpert | None,
         batch_size: int,
         device: str,
         generator: torch.Generator,
@@ -105,12 +105,18 @@ class MoEPDESampler:
         num_experts = len(moe_probability_path.q_list)
         logq: ExpertLogQ = logq.sum(dim=-1, keepdim=True).repeat(1, num_experts).unsqueeze(2)
 
-        x0 = MoEPDESampler.translate_particles_to_pocket_conditioned_frame(
-            x=x0_raw,
-            sbdd_expert=sbdd_expert,
-            batch_size=batch_size,
-            device=device,
-        )
+        x0 = x0_raw
+        if sbdd_expert is not None:
+            node_feature_dim = moe_probability_path.node_feature_dim
+            if node_feature_dim is None:
+                raise ValueError("MoEProbabilityPath.node_feature_dim is required for pocket-conditioned sampling.")
+            x0 = MoEPDESampler.translate_particles_to_pocket_conditioned_frame(
+                x=x0_raw,
+                sbdd_expert=sbdd_expert,
+                batch_size=batch_size,
+                device=device,
+                node_feature_dim=node_feature_dim,
+            )
 
         logweight: ParticleLogWeight = torch.zeros(batch_size, device=device)
 
@@ -122,18 +128,19 @@ class MoEPDESampler:
         sbdd_expert: SBDDExpert,
         batch_size: int,
         device: str,
+        node_feature_dim: int,
     ) -> ParticleState:
         """Place Gaussian ligand coordinates around the pocket COM, then keep the ligand-centered frame."""
         xh_pocket = sbdd_expert.get_current_pocket_xh().to(device=device)
         if x.shape[0] != batch_size:
             raise ValueError(f"Particle batch size must be {batch_size}, got {x.shape[0]}.")
-        if x.shape[1] % NODE_FEATURE_DIM != 0:
+        if x.shape[1] % node_feature_dim != 0:
             raise ValueError(
-                "MoE sample size must be divisible by NODE_FEATURE_DIM to initialize pocket-conditioned particles: "
-                f"{x.shape[1]} % {NODE_FEATURE_DIM} != 0."
+                "MoE sample size must be divisible by node_feature_dim to initialize pocket-conditioned particles: "
+                f"{x.shape[1]} % {node_feature_dim} != 0."
             )
 
-        xh_lig = x.reshape(batch_size, -1, NODE_FEATURE_DIM)
+        xh_lig = x.reshape(batch_size, -1, node_feature_dim)
         pocket_com = xh_pocket[:, :, :COORDS_DIM].mean(dim=1)
 
         xh_lig[:, :, :COORDS_DIM] += pocket_com[:, None, :].to(dtype=xh_lig.dtype)
@@ -152,7 +159,7 @@ class MoEPDESampler:
         cls,
         moe_probability_path: MoEProbabilityPath,
         sampler_cfg: _BaseSamplerConfig,
-        sbdd_expert: SBDDExpert,
+        sbdd_expert: SBDDExpert | None,
         interleave_fns: list[InterleaveFn] | None = None,
         postprocess_fns: list[PostprocessFn] | None = None,
     ) -> tuple[ParticleState, StateTrajectory, LogWeightTrajectory, LogQTrajectory, ChoicesTrajectory]:

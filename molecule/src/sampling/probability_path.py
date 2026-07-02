@@ -175,6 +175,7 @@ class MoEProbabilityPath(ProbabilityPathABC):
         mask_list: list[DataMask],
         exponent_list: list[ExponentFunctionType],
         sample_size: int,
+        node_feature_dim: int | None = None,
     ):
         super().__init__()
         self.q_list = q_list
@@ -184,6 +185,7 @@ class MoEProbabilityPath(ProbabilityPathABC):
         self.scheduler = scheduler
 
         self.sample_size = sample_size
+        self.node_feature_dim = node_feature_dim
 
         # for caching the mixture weights, to avoid recomputing them every time
         self.clear_cache()
