@@ -68,6 +68,7 @@ class ExpertPipeline(ABC):
         self,
         *,
         component_runtime: ComponentRuntime,
+        layout: DynamicMoELayout,
         active_mask: DataMask,
     ) -> InterleaveFn:
         """Return the sampler interleave hook for this component."""

@@ -108,7 +108,11 @@ def build_condition_probability_path(
         )
         mask_list.append(layout.state_mask_for_scope(component.node_scope))
         interleave_fns.append(
-            component_runtime.pipeline.interleave_fn(component_runtime=component_runtime, active_mask=active_mask)
+            component_runtime.pipeline.interleave_fn(
+                component_runtime=component_runtime,
+                layout=layout,
+                active_mask=active_mask,
+            )
         )
         postprocess_fns.append(
             component_runtime.pipeline.postprocess_fn(

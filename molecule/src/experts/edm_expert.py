@@ -143,9 +143,38 @@ class EDMExpert(MoEExpertABC):
 
         return score.reshape(curr_shape)
 
-    def interleave(self, x: Float[torch.Tensor, "B data"], *args, **kwargs) -> Float[torch.Tensor, "B data"]:
-        # Implementation for interleaving data specific to EDM; no-op
-        return x
+    def interleave(
+        self,
+        x: Float[torch.Tensor, "B data"],
+        *args,
+        coord_mask: DataMask | None = None,
+        num_nodes: int | None = None,
+        **kwargs,
+    ) -> Float[torch.Tensor, "B data"]:
+        """Project EDM-owned coordinates back to the mean-zero subspace."""
+        if coord_mask is None:
+            return x
+        if num_nodes is None:
+            raise ValueError("num_nodes must be provided when coord_mask is used for EDM interleave.")
+
+        coord_mask = coord_mask.to(device=x.device)
+        expected_num_coord_values = num_nodes * self.model.n_dims
+        actual_num_coord_values = int(coord_mask.sum().item())
+        if actual_num_coord_values != expected_num_coord_values:
+            raise ValueError(
+                "EDM coordinate mask size does not match the expected node/coordinate shape: "
+                f"{actual_num_coord_values} != {expected_num_coord_values}."
+            )
+
+        node_mask = self._inference_context.node_mask.to(device=x.device, dtype=x.dtype)
+        if node_mask.shape[1] != num_nodes:
+            raise ValueError(f"EDM node_mask has {node_mask.shape[1]} nodes, but coord_mask expects {num_nodes}.")
+
+        x_out = x.detach()
+        coords = x_out[..., coord_mask].reshape(x.shape[0], num_nodes, self.model.n_dims)
+        coords = remove_mean_with_mask(coords, node_mask)
+        x_out[..., coord_mask] = coords.reshape(x.shape[0], -1)
+        return x_out
 
     def postprocess(
         self,

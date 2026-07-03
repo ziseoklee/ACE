@@ -59,6 +59,7 @@ class DiffSBDDPipeline(ExpertPipeline):
         self,
         *,
         component_runtime,
+        layout: DynamicMoELayout,
         active_mask: DataMask,
     ) -> InterleaveFn:
         expert = cast(DiffSBDDExpert, component_runtime.expert)

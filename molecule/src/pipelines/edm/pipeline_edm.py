@@ -16,7 +16,7 @@ from pipelines.edm.components import (
 )
 from sampling.moe_layout import DynamicMoELayout
 from sampling.path_factory import PaddedPathScheduler
-from sampling.sampler import PostprocessFn
+from sampling.sampler import InterleaveFn, PostprocessFn
 from sampling.scheduler import EDMScheduler
 
 
@@ -51,6 +51,19 @@ class EDMPipeline(ExpertPipeline):
         expert = cast(EDMExpert, component_runtime.expert)
         num_nodes = layout.num_nodes_for_scope(component.node_scope)
         expert.prepare_data(batch_size, num_nodes)
+
+    def interleave_fn(
+        self,
+        *,
+        component_runtime,
+        layout: DynamicMoELayout,
+        active_mask: DataMask,
+    ) -> InterleaveFn:
+        component = component_runtime.config
+        expert = cast(EDMExpert, component_runtime.expert)
+        coord_mask = layout.coordinate_mask_for_scope(component.node_scope)
+        num_nodes = layout.num_nodes_for_scope(component.node_scope)
+        return functools.partial(expert.interleave, coord_mask=coord_mask, num_nodes=num_nodes)
 
     def postprocess_fn(
         self,

@@ -214,6 +214,19 @@ class DynamicMoELayout:
             return torch.ones(self.ligand_size, self.node_feature_dim, dtype=torch.bool, device=self.device).flatten()
         raise ValueError(f"Unsupported node scope {node_scope!r}.")
 
+    def coordinate_mask_for_scope(self, node_scope: str) -> DataMask:
+        if node_scope == "fragment":
+            mask = torch.zeros(self.ligand_size, self.node_feature_dim, dtype=torch.bool, device=self.device)
+            mask[: self.fragment_size, list(self.atom_layout.coord_columns())] = True
+            return mask.flatten()
+        if node_scope == "ligand":
+            return self.atom_layout.node_mask(
+                self.ligand_size,
+                self.atom_layout.coord_columns(),
+                device=self.device,
+            )
+        raise ValueError(f"Unsupported node scope {node_scope!r}.")
+
     def active_mask_for_component(self, component: MoEComponentLayoutSpec) -> DataMask:
         return self.atom_layout.node_mask(
             self.num_nodes_for_scope(component.node_scope),
