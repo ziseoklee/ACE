@@ -124,6 +124,20 @@ class DynamicMoEAtomLayout:
             columns.append(self.nuclear_charge_feature_column)
         return tuple(sorted(set(columns)))
 
+    def component_native_active_columns(self, component: MoEComponentLayoutSpec) -> tuple[int, ...]:
+        columns: list[int] = []
+        if component.score_coordinates:
+            columns.extend(self.coord_columns())
+        if component.score_atom_types:
+            scored_atoms = component.scored_atoms or component.supported_atoms
+            columns.extend(self.atom_type_columns(scored_atoms))
+        if component.score_nuclear_charge_feature:
+            columns.append(self.nuclear_charge_feature_column)
+
+        if len(columns) != len(set(columns)):
+            raise ValueError(f"Component {component.name} has duplicated active columns: {columns}.")
+        return tuple(columns)
+
     def component_padding_columns(self, component: MoEComponentLayoutSpec) -> tuple[int, ...]:
         active_columns = set(self.component_active_columns(component))
         return tuple(column for column in range(self.node_feature_dim) if column not in active_columns)
@@ -141,6 +155,32 @@ class DynamicMoEAtomLayout:
         mask = torch.zeros(num_nodes, self.node_feature_dim, dtype=torch.bool, device=device)
         mask[:, list(columns)] = True
         return mask.flatten()
+
+
+@dataclass(frozen=True)
+class ComponentFeatureAdapter:
+    """Reorder one component's active features between global and expert-native column order."""
+
+    num_nodes: int
+    num_features: int
+    native_from_global: tuple[int, ...]
+    global_from_native: tuple[int, ...]
+
+    @property
+    def is_identity(self) -> bool:
+        return self.native_from_global == tuple(range(self.num_features))
+
+    def to_native(self, x: torch.Tensor) -> torch.Tensor:
+        if self.is_identity:
+            return x
+        x_view = x.reshape(x.shape[0], self.num_nodes, self.num_features)
+        return x_view[..., list(self.native_from_global)].reshape(x.shape)
+
+    def to_global(self, x: torch.Tensor) -> torch.Tensor:
+        if self.is_identity:
+            return x
+        x_view = x.reshape(x.shape[0], self.num_nodes, self.num_features)
+        return x_view[..., list(self.global_from_native)].reshape(x.shape)
 
 
 @dataclass(frozen=True)
@@ -227,11 +267,48 @@ class DynamicMoELayout:
             )
         raise ValueError(f"Unsupported node scope {node_scope!r}.")
 
+    def atom_type_mask_for_scope(self, node_scope: str, atoms: Sequence[str]) -> DataMask | None:
+        if not atoms:
+            return None
+        return self.atom_layout.node_mask(
+            self.num_nodes_for_scope(node_scope),
+            self.atom_layout.atom_type_columns(atoms),
+            device=self.device,
+        )
+
+    def atom_type_mask_for_component(self, component: MoEComponentLayoutSpec) -> DataMask | None:
+        if not component.score_atom_types:
+            return None
+        scored_atoms = component.scored_atoms or component.supported_atoms
+        return self.atom_type_mask_for_scope(component.node_scope, scored_atoms)
+
     def active_mask_for_component(self, component: MoEComponentLayoutSpec) -> DataMask:
         return self.atom_layout.node_mask(
             self.num_nodes_for_scope(component.node_scope),
             self.atom_layout.component_active_columns(component),
             device=self.device,
+        )
+
+    def feature_adapter_for_component(self, component: MoEComponentLayoutSpec) -> ComponentFeatureAdapter:
+        global_columns = self.atom_layout.component_active_columns(component)
+        native_columns = self.atom_layout.component_native_active_columns(component)
+
+        if set(global_columns) != set(native_columns):
+            raise ValueError(
+                f"Component {component.name} global/native active columns differ: "
+                f"{global_columns} != {native_columns}."
+            )
+
+        global_position = {column: idx for idx, column in enumerate(global_columns)}
+        native_position = {column: idx for idx, column in enumerate(native_columns)}
+        native_from_global = tuple(global_position[column] for column in native_columns)
+        global_from_native = tuple(native_position[column] for column in global_columns)
+
+        return ComponentFeatureAdapter(
+            num_nodes=self.num_nodes_for_scope(component.node_scope),
+            num_features=len(global_columns),
+            native_from_global=native_from_global,
+            global_from_native=global_from_native,
         )
 
     def auxiliary_mask_for_component(self, component: MoEComponentLayoutSpec) -> DataMask:

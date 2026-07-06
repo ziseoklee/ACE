@@ -87,6 +87,7 @@ def build_condition_probability_path(
         )
 
         active_mask = layout.active_mask_for_component(component)
+        feature_adapter = layout.feature_adapter_for_component(component)
         auxiliary_mask = layout.auxiliary_mask_for_component(component)
         auxiliary_point = component_runtime.pipeline.auxiliary_point(
             component_runtime=component_runtime,
@@ -104,6 +105,7 @@ def build_condition_probability_path(
                 auxiliary_mask=auxiliary_mask,
                 auxiliary_point=auxiliary_point,
                 device=device,
+                feature_adapter=feature_adapter,
             )
         )
         mask_list.append(layout.state_mask_for_scope(component.node_scope))
