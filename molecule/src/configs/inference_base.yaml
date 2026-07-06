@@ -1,0 +1,25 @@
+defaults:
+  - sampler: ACESampler
+  - moe: DefaultMoE
+  - _self_
+
+data:
+  protein_pocket_pdb_path: examples/4m7t_pocket.pdb
+  fragment_sdf_path: examples/4m7t_fragment.sdf
+  ligand_sdf_path: examples/4m7t_ligand.sdf
+  # If null, use the reference ligand atom count. Otherwise, sample a ligand with this many atoms.
+  num_ligand_atoms: null
+
+# Minimal MoE scaffold. Concrete components and exponent functions are added from bash scripts.
+moe:
+  omega: ???
+  global_scheduler_key: GEODIFF
+  # WARNING/FIXME: This empirical multiplier works well in DiffSBDD and
+  # 4-expert MoE inference, but not consistently in EDM-only or GeoDiff-only
+  # inference. The reason for the default value 2.0 is not yet fully understood.
+  diffusion_scale: 2.0
+  components: {}
+  exponents: {}
+
+# If null, will use Hydra's default output directory. Otherwise, specify a custom output directory.
+output_dir: null
