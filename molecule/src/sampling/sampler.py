@@ -105,17 +105,17 @@ class MoEPDESampler:
         num_experts = len(moe_probability_path.q_list)
         logq: ExpertLogQ = logq.sum(dim=-1, keepdim=True).repeat(1, num_experts).unsqueeze(2)
 
-        x0 = x0_raw
+        x0, ligand_com = MoEPDESampler.center_ligand_coordinates(
+            x=x0_raw,
+            batch_size=batch_size,
+            node_feature_dim=moe_probability_path.node_feature_dim,
+        )
+
         if sbdd_expert is not None:
-            node_feature_dim = moe_probability_path.node_feature_dim
-            if node_feature_dim is None:
-                raise ValueError("MoEProbabilityPath.node_feature_dim is required for pocket-conditioned sampling.")
-            x0 = MoEPDESampler.translate_particles_to_pocket_conditioned_frame(
-                x=x0_raw,
+            MoEPDESampler.align_sbdd_pocket_to_ligand_frame(
                 sbdd_expert=sbdd_expert,
-                batch_size=batch_size,
+                ligand_com=ligand_com,
                 device=device,
-                node_feature_dim=node_feature_dim,
             )
 
         logweight: ParticleLogWeight = torch.zeros(batch_size, device=device)
@@ -123,35 +123,40 @@ class MoEPDESampler:
         return x0, logq, logweight
 
     @staticmethod
-    def translate_particles_to_pocket_conditioned_frame(
+    def center_ligand_coordinates(
         x: ParticleState,
-        sbdd_expert: SBDDExpert,
         batch_size: int,
-        device: str,
         node_feature_dim: int,
-    ) -> ParticleState:
-        """Place Gaussian ligand coordinates around the pocket COM, then keep the ligand-centered frame."""
-        xh_pocket = sbdd_expert.get_current_pocket_xh().to(device=device)
+    ) -> tuple[ParticleState, Float[torch.Tensor, "B coords"]]:
+        """Center ligand coordinates while keeping logq defined by the raw Gaussian."""
         if x.shape[0] != batch_size:
             raise ValueError(f"Particle batch size must be {batch_size}, got {x.shape[0]}.")
         if x.shape[1] % node_feature_dim != 0:
             raise ValueError(
-                "MoE sample size must be divisible by node_feature_dim to initialize pocket-conditioned particles: "
+                "MoE sample size must be divisible by node_feature_dim to center ligand coordinates: "
                 f"{x.shape[1]} % {node_feature_dim} != 0."
             )
 
-        xh_lig = x.reshape(batch_size, -1, node_feature_dim)
-        pocket_com = xh_pocket[:, :, :COORDS_DIM].mean(dim=1)
-
-        xh_lig[:, :, :COORDS_DIM] += pocket_com[:, None, :].to(dtype=xh_lig.dtype)
-
+        x_out = x.clone()
+        xh_lig = x_out.reshape(batch_size, -1, node_feature_dim)
         ligand_com = xh_lig[:, :, :COORDS_DIM].mean(dim=1)
         xh_lig[:, :, :COORDS_DIM] -= ligand_com[:, None, :]
-        xh_pocket = xh_pocket.clone()
-        xh_pocket[:, :, :COORDS_DIM] -= ligand_com[:, None, :].to(dtype=xh_pocket.dtype)
-        sbdd_expert.set_current_pocket_xh(xh_pocket)
+        return xh_lig.reshape(batch_size, -1), ligand_com
 
-        return xh_lig.reshape(batch_size, -1)
+    @staticmethod
+    def align_sbdd_pocket_to_ligand_frame(
+        sbdd_expert: SBDDExpert,
+        ligand_com: Float[torch.Tensor, "B coords"],
+        device: str,
+    ) -> None:
+        """Move the SBDD pocket context into the centered ligand frame."""
+        xh_pocket = sbdd_expert.get_current_pocket_xh().to(device=device)
+        pocket_com = xh_pocket[:, :, :COORDS_DIM].mean(dim=1)
+
+        xh_pocket = xh_pocket.clone()
+        pocket_translation = pocket_com + ligand_com.to(device=xh_pocket.device, dtype=xh_pocket.dtype)
+        xh_pocket[:, :, :COORDS_DIM] -= pocket_translation[:, None, :]
+        sbdd_expert.set_current_pocket_xh(xh_pocket)
 
     @classmethod
     @computation_overhead_logger

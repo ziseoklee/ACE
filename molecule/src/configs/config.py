@@ -1,15 +1,11 @@
 from hydra.core.config_store import ConfigStore
 
+from pipelines.diffsbdd.components import DIFFSBDD_CROSSDOCKED_FULLATOM_COND
+from pipelines.edm.components import EDM_GEOM_DRUG_FRAGMENT, EDM_GEOM_DRUG_LIGAND, EDM_QM9_FRAGMENT, EDM_QM9_LIGAND
+from pipelines.geodiff.components import GEODIFF_QM9_FRAGMENT
+
 from .config_benchmark import CrossDocked2020BenchConfig
 from .config_moe import MoEConfig
-from .config_moe_component import (
-    DIFFSBDD_CROSSDOCKED_FULLATOM_COND,
-    EDM_GEOM_DRUG,
-    EDM_GEOM_DRUG_LIGAND,
-    EDM_QM9_FRAGMENT,
-    EDM_QM9_LIGAND,
-    GEODIFF_QM9_FRAGMENT,
-)
 from .config_sampler import ACEliteSamplerConfig, ACESamplerConfig, FKCSamplerConfig, NRSamplerConfig
 from .config_weight import (
     ACEBumpWeightConfig,
@@ -45,10 +41,10 @@ cs.store(group="weight", name="VBumpWeight", node=VBumpWeightConfig)
 cs.store(group="weight", name="QuadraticBumpWeight", node=QuadraticBumpWeightConfig)
 cs.store(group="weight", name="ACEBumpWeight", node=ACEBumpWeightConfig)
 
-# MoE component configs
+# MoE component configs are defined next to their expert pipelines and explicitly exposed here for Hydra composition.
 cs.store(group="moe_component", name="EDM_QM9_FRAGMENT", node=EDM_QM9_FRAGMENT)
 cs.store(group="moe_component", name="EDM_QM9_LIGAND", node=EDM_QM9_LIGAND)
-cs.store(group="moe_component", name="EDM_GEOM_DRUG", node=EDM_GEOM_DRUG)
+cs.store(group="moe_component", name="EDM_GEOM_DRUG_FRAGMENT", node=EDM_GEOM_DRUG_FRAGMENT)
 cs.store(group="moe_component", name="EDM_GEOM_DRUG_LIGAND", node=EDM_GEOM_DRUG_LIGAND)
 cs.store(group="moe_component", name="GEODIFF_QM9_FRAGMENT", node=GEODIFF_QM9_FRAGMENT)
 cs.store(group="moe_component", name="DIFFSBDD_CROSSDOCKED_FULLATOM_COND", node=DIFFSBDD_CROSSDOCKED_FULLATOM_COND)

@@ -10,19 +10,12 @@ from jaxtyping import Float
 from omegaconf import DictConfig, ListConfig, OmegaConf
 
 from configs.config_moe import MoEExponentConfig
-from configs.config_moe_component import (
-    EXPERT_DIFFSBDD_CROSSDOCKED_FULLATOM_COND,
-    EXPERT_EDM_QM9,
-    EXPERT_GEODIFF_QM9,
-    SCHEDULER_DIFFSBDD,
-    SCHEDULER_EDM,
-    SCHEDULER_GEODIFF,
-    MoEComponentConfig,
-)
+from configs.config_moe_component import MoEComponentConfig
 from configs.config_weight import _BaseWeightConfig
-from experts import DiffSBDDExpert, EDMExpert, GeoDiffExpert
-from experts.base_expert import MoEExpertABC
-from sampling.scheduler import DiffSBDDScheduler, EDMScheduler, GeoDiffScheduler
+from experts.base_expert import MoEExpertABC, SBDDExpert
+from pipelines import ExpertPipeline, get_default_pipeline_registry
+from pipelines.registry import ExpertPipelineRegistry
+from sampling.path_factory import PaddedPathScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +29,9 @@ class ComponentRuntime:
 
     component_id: str
     config: MoEComponentConfig
+    pipeline: ExpertPipeline
     expert: MoEExpertABC
-    scheduler: EDMScheduler | GeoDiffScheduler | DiffSBDDScheduler
+    scheduler: PaddedPathScheduler
 
 
 @dataclass
@@ -47,7 +41,7 @@ class SamplingRuntime:
     components: list[ComponentRuntime]
     exponent_list: list[ExponentFunctionType]
     global_scheduler_key: str
-    global_scheduler: EDMScheduler | GeoDiffScheduler | DiffSBDDScheduler
+    global_scheduler: PaddedPathScheduler
 
     def get_component(self, name: str) -> ComponentRuntime:
         for component in self.components:
@@ -55,6 +49,20 @@ class SamplingRuntime:
                 return component
         available = ", ".join(f"{component.component_id} ({component.config.name})" for component in self.components)
         raise KeyError(f"MoE component {name!r} was not loaded. Available components: {available}.")
+
+    def sbdd_expert(self) -> SBDDExpert | None:
+        for component in self.components:
+            sbdd_expert = component.pipeline.sbdd_expert(component)
+            if sbdd_expert is not None:
+                return sbdd_expert
+        return None
+
+    def atom_type_feature_value(self, default: float = 1.0) -> float:
+        for component in self.components:
+            value = component.pipeline.atom_type_feature_value(component)
+            if value is not None:
+                return value
+        return default
 
 
 def seed_everything(seed: int) -> None:
@@ -146,8 +154,9 @@ def load_sampling_runtime(
     exponent_list = build_exponent_list(component_entries, exponent_configs)
 
     logger.info("Loading %d MoE components...", len(component_entries))
+    registry = get_default_pipeline_registry()
     components = [
-        _load_component_runtime(component_id, component_cfg, device=device)
+        _load_component_runtime(component_id, component_cfg, device=device, registry=registry)
         for component_id, component_cfg in component_entries
     ]
 
@@ -155,11 +164,16 @@ def load_sampling_runtime(
         components=components,
         exponent_list=exponent_list,
         global_scheduler_key=global_scheduler_key,
-        global_scheduler=_load_scheduler(global_scheduler_key),
+        global_scheduler=registry.make_scheduler(global_scheduler_key),
     )
 
 
-def _load_component_runtime(component_id: str, component_cfg: MoEComponentConfig, device: str) -> ComponentRuntime:
+def _load_component_runtime(
+    component_id: str,
+    component_cfg: MoEComponentConfig,
+    device: str,
+    registry: ExpertPipelineRegistry,
+) -> ComponentRuntime:
     logger.info(
         "Loading MoE component %s (%s, %s)...",
         component_id,
@@ -167,38 +181,14 @@ def _load_component_runtime(component_id: str, component_cfg: MoEComponentConfig
         component_cfg.scheduler_key,
     )
 
+    pipeline = registry.pipeline_for_expert_key(component_cfg.expert_key)
     return ComponentRuntime(
         component_id=component_id,
         config=component_cfg,
-        expert=_load_expert(component_cfg.expert_key, device=device),
-        scheduler=_load_scheduler(component_cfg.scheduler_key),
+        pipeline=pipeline,
+        expert=pipeline.load_expert(device=device, component_config=component_cfg),
+        scheduler=registry.make_scheduler(component_cfg.scheduler_key),
     )
-
-
-def _load_expert(expert_key: str, device: str) -> MoEExpertABC:
-    if expert_key == EXPERT_EDM_QM9:
-        return EDMExpert.from_pretrained(device=device)
-
-    if expert_key == EXPERT_GEODIFF_QM9:
-        return GeoDiffExpert.from_pretrained(device=device)
-
-    if expert_key == EXPERT_DIFFSBDD_CROSSDOCKED_FULLATOM_COND:
-        return DiffSBDDExpert.from_pretrained(device=device)
-
-    raise NotImplementedError(f"Unsupported MoE expert_key: {expert_key!r}.")
-
-
-def _load_scheduler(scheduler_key: str) -> EDMScheduler | GeoDiffScheduler | DiffSBDDScheduler:
-    if scheduler_key == SCHEDULER_EDM:
-        return EDMScheduler()
-
-    if scheduler_key == SCHEDULER_GEODIFF:
-        return GeoDiffScheduler()
-
-    if scheduler_key == SCHEDULER_DIFFSBDD:
-        return DiffSBDDScheduler()
-
-    raise NotImplementedError(f"Unsupported MoE scheduler_key: {scheduler_key!r}.")
 
 
 def component_configs_from_hydra(

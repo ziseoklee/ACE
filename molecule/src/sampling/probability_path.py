@@ -175,9 +175,12 @@ class MoEProbabilityPath(ProbabilityPathABC):
         mask_list: list[DataMask],
         exponent_list: list[ExponentFunctionType],
         sample_size: int,
-        node_feature_dim: int | None = None,
+        node_feature_dim: int,
     ):
         super().__init__()
+        if not isinstance(node_feature_dim, int) or node_feature_dim <= 0:
+            raise ValueError(f"node_feature_dim must be a positive int, got {node_feature_dim!r}.")
+
         self.q_list = q_list
         self.mask_list = mask_list
         self.reverse = self.check_reverse()
@@ -308,7 +311,8 @@ class MoEProbabilityPath(ProbabilityPathABC):
 
     def sigma(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         """Diffusion coefficient of MoE SDE, calculated as diffusion of global scheduler (not a mixture)."""
-        gamma = 2.0  # !FIXME: I have no idea why this is 2.0, but it seems to work well in practice.
+        # gamma = 1.0 # FIXME: this is working well in EDM, GeoDiff inference but not in DiffSBDD inference.
+        gamma = 2.0  # FIXME: this is working well in DiffSBDD, 4-expert MoE inference but not in EDM, GeoDiff inference. I have no idea why this is 2.0, but it seems to work well in practice.
         if not self.reverse:
             return gamma * self.scheduler.diffusion_coeff(t)
         else:

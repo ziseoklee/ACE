@@ -2,6 +2,8 @@ import argparse
 import logging
 import pickle
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Final
 
 import torch
 from e3_diffusion_for_molecules.configs.datasets_config import get_dataset_info
@@ -15,13 +17,39 @@ from experts.base_expert import MoEExpertABC
 from utils.logging_utils import redirect_output_to_logger
 
 EDM_SOURCE_DIR = PRETRAINED_MODEL_DIR / "e3_diffusion_for_molecules"
-EDM_CKPT_PATH = EDM_SOURCE_DIR / "outputs" / "edm_qm9" / "generative_model_ema.npy"
-EDM_MODEL_CONFIG_PATH = EDM_SOURCE_DIR / "outputs" / "edm_qm9" / "args.pickle"
+EDM_PRETRAINED_QM9: Final = "qm9"
+EDM_PRETRAINED_GEOM_DRUG: Final = "geom_drug"
 
 
 logger = logging.getLogger(__name__)
 
 DataMask = Bool[torch.Tensor, "data"]  # noqa: F821
+
+
+@dataclass(frozen=True)
+class EDMPretrainedSpec:
+    name: str
+    output_dir: Path
+
+    @property
+    def checkpoint_path(self) -> Path:
+        return self.output_dir / "generative_model_ema.npy"
+
+    @property
+    def model_config_path(self) -> Path:
+        return self.output_dir / "args.pickle"
+
+
+EDM_PRETRAINED_SPECS: Final[dict[str, EDMPretrainedSpec]] = {
+    EDM_PRETRAINED_QM9: EDMPretrainedSpec(
+        name="EDM_QM9",
+        output_dir=EDM_SOURCE_DIR / "outputs" / "edm_qm9",
+    ),
+    EDM_PRETRAINED_GEOM_DRUG: EDMPretrainedSpec(
+        name="EDM_GEOM_DRUG",
+        output_dir=EDM_SOURCE_DIR / "outputs" / "edm_geom_drugs",
+    ),
+}
 
 
 @dataclass
@@ -38,24 +66,43 @@ class EDMExpert(MoEExpertABC):
     Reference code: https://github.com/ehoogeboom/e3_diffusion_for_molecules
     """
 
-    _EDM_MAX_NODES = 29  # Maximum number of nodes in the QM9 dataset
-
     device: str
     model: EnVariationalDiffusion
     model_config: argparse.Namespace
+    dataset_info: dict
+    max_nodes: int
     _inference_context: EDMInferenceContext
 
-    def __init__(self, device: str, model: EnVariationalDiffusion, model_config: argparse.Namespace):
+    def __init__(
+        self,
+        device: str,
+        model: EnVariationalDiffusion,
+        model_config: argparse.Namespace,
+        dataset_info: dict,
+    ):
         super().__init__()
         self.device = device
         self.model = model.to(self.device)
         self.model_config = model_config
+        self.dataset_info = dataset_info
+        self.max_nodes = int(dataset_info["max_n_nodes"])
 
     @classmethod
-    def from_pretrained(cls, device: str):
-        logger.info(f"Loading EDM expert from pretrained model at {EDM_CKPT_PATH} and args at {EDM_MODEL_CONFIG_PATH}")
+    def from_pretrained(cls, device: str, pretrained_model: str = EDM_PRETRAINED_QM9):
+        try:
+            pretrained_spec = EDM_PRETRAINED_SPECS[pretrained_model]
+        except KeyError as exc:
+            supported = ", ".join(EDM_PRETRAINED_SPECS)
+            raise ValueError(f"Unsupported EDM pretrained model {pretrained_model!r}. Supported: {supported}.") from exc
 
-        with open(EDM_MODEL_CONFIG_PATH, "rb") as f:
+        logger.info(
+            "Loading %s expert from pretrained model at %s and args at %s",
+            pretrained_spec.name,
+            pretrained_spec.checkpoint_path,
+            pretrained_spec.model_config_path,
+        )
+
+        with open(pretrained_spec.model_config_path, "rb") as f:
             edm_config: argparse.Namespace = pickle.load(f)
         if not hasattr(edm_config, "normalization_factor"):
             edm_config.normalization_factor = 1
@@ -65,21 +112,27 @@ class EDMExpert(MoEExpertABC):
         with redirect_output_to_logger(logger):
             dataset_info = get_dataset_info(edm_config.dataset, edm_config.remove_h)
             model: EnVariationalDiffusion = get_model(edm_config, device, dataset_info, dataloader_train=None)[0]
-        ckpt = torch.load(EDM_CKPT_PATH, map_location=device, weights_only=True)
+        ckpt = torch.load(pretrained_spec.checkpoint_path, map_location=device, weights_only=True)
         model.load_state_dict(ckpt, strict=True)
         model.to(device)
         model.eval()
 
         n_params = sum(p.numel() for p in model.parameters())
-        logger.info("EDM model loaded with %d parameters", n_params)
+        logger.info(
+            "%s model loaded with %d parameters; max_nodes=%d, include_charges=%s",
+            pretrained_spec.name,
+            n_params,
+            int(dataset_info["max_n_nodes"]),
+            edm_config.include_charges,
+        )
 
-        instance = cls(device=device, model=model, model_config=edm_config)
+        instance = cls(device=device, model=model, model_config=edm_config, dataset_info=dataset_info)
         return instance
 
     def prepare_data(self, batch_size: int, num_nodes: int):
         # Implementation for preparing data specific to EDM
-        assert num_nodes <= self._EDM_MAX_NODES, (
-            f"num_nodes must be <= {self._EDM_MAX_NODES} as per the EDM model's training configuration."
+        assert num_nodes <= self.max_nodes, (
+            f"num_nodes must be <= {self.max_nodes} as per the EDM model's training configuration."
         )
 
         node_mask: Float[torch.Tensor, "B L"] = torch.ones(batch_size, num_nodes)
@@ -143,26 +196,56 @@ class EDMExpert(MoEExpertABC):
 
         return score.reshape(curr_shape)
 
-    def interleave(self, x: Float[torch.Tensor, "B data"], *args, **kwargs) -> Float[torch.Tensor, "B data"]:
-        # Implementation for interleaving data specific to EDM; no-op
-        return x
+    def interleave(
+        self,
+        x: Float[torch.Tensor, "B data"],
+        *args,
+        coord_mask: DataMask | None = None,
+        num_nodes: int | None = None,
+        **kwargs,
+    ) -> Float[torch.Tensor, "B data"]:
+        """Project EDM-owned coordinates back to the mean-zero subspace."""
+        if coord_mask is None:
+            return x
+        if num_nodes is None:
+            raise ValueError("num_nodes must be provided when coord_mask is used for EDM interleave.")
+
+        coord_mask = coord_mask.to(device=x.device)
+        expected_num_coord_values = num_nodes * self.model.n_dims
+        actual_num_coord_values = int(coord_mask.sum().item())
+        if actual_num_coord_values != expected_num_coord_values:
+            raise ValueError(
+                "EDM coordinate mask size does not match the expected node/coordinate shape: "
+                f"{actual_num_coord_values} != {expected_num_coord_values}."
+            )
+
+        node_mask = self._inference_context.node_mask.to(device=x.device, dtype=x.dtype)
+        if node_mask.shape[1] != num_nodes:
+            raise ValueError(f"EDM node_mask has {node_mask.shape[1]} nodes, but coord_mask expects {num_nodes}.")
+
+        x_out = x.detach()
+        coords = x_out[..., coord_mask].reshape(x.shape[0], num_nodes, self.model.n_dims)
+        coords = remove_mean_with_mask(coords, node_mask)
+        x_out[..., coord_mask] = coords.reshape(x.shape[0], -1)
+        return x_out
 
     def postprocess(
         self,
         x: Float[torch.Tensor, "B data"],
-        h_mask: DataMask | None = None,
+        categorical_mask: DataMask | None = None,
     ) -> Float[torch.Tensor, "B data"]:
         """
-        Decode EDM-owned H channels for the current DiffSBDD-EDM MoE layout.
+        Decode selected EDM-owned categorical channels from latent scale.
 
-        C/N/O/F channels are decoded by DiffSBDD to avoid double unnormalization.
-        EDM's integer feature is nuclear charge, not formal charge, and remains
-        ignored by the current molecule construction path.
+        EDM's integer feature is nuclear charge, not formal charge, and remains ignored
+        by the current molecule construction path.
         """
-        if h_mask is None:
+        if categorical_mask is None:
             return x
 
-        h_mask = h_mask.to(device=x.device)
+        categorical_mask = categorical_mask.to(device=x.device)
         x_out = x.clone()
-        x_out[..., h_mask] = x_out[..., h_mask] * self.model.norm_values[1] + self.model.norm_biases[1]
+        x_out[..., categorical_mask] = (
+            x_out[..., categorical_mask] * self.model.norm_values[1] + self.model.norm_biases[1]
+        )
         return x_out

@@ -70,6 +70,7 @@ include = [
     "experts*",
     "evaluation*",
     "inference*",
+    "pipelines*",
     "sampling*",
     "utils*",
     "postprocessing*",

@@ -7,26 +7,6 @@ CONDITION_POCKET: Final = "pocket"
 CONDITION_FRAGMENT_MOL: Final = "fragment_mol"
 FIXED_ATOM_TYPE_SOURCE_FRAGMENT_MOL: Final = "fragment_mol"
 
-EXPERT_EDM_QM9: Final = "EDM_QM9"
-EXPERT_EDM_GEOM_DRUG: Final = "EDM_GEOM_DRUG"
-EXPERT_GEODIFF_QM9: Final = "GEODIFF_QM9"
-EXPERT_DIFFSBDD_CROSSDOCKED_FULLATOM_COND: Final = "DIFFSBDD_CROSSDOCKED_FULLATOM_COND"
-
-SCHEDULER_EDM: Final = "EDM"
-SCHEDULER_GEODIFF: Final = "GEODIFF"
-SCHEDULER_DIFFSBDD: Final = "DIFFSBDD"
-
-SUPPORTED_EXPERT_KEYS: Final = (
-    EXPERT_EDM_QM9,
-    EXPERT_EDM_GEOM_DRUG,
-    EXPERT_GEODIFF_QM9,
-    EXPERT_DIFFSBDD_CROSSDOCKED_FULLATOM_COND,
-)
-SUPPORTED_SCHEDULER_KEYS: Final = (
-    SCHEDULER_EDM,
-    SCHEDULER_GEODIFF,
-    SCHEDULER_DIFFSBDD,
-)
 SUPPORTED_NODE_SCOPES: Final = (
     NODE_SCOPE_FRAGMENT,
     NODE_SCOPE_LIGAND,
@@ -93,10 +73,10 @@ class MoEComponentConfig:
 
         if not self.name:
             raise ValueError("MoE component name must be non-empty.")
-        if self.expert_key not in SUPPORTED_EXPERT_KEYS:
-            raise ValueError(f"Unsupported expert_key {self.expert_key!r} for component {self.name}.")
-        if self.scheduler_key not in SUPPORTED_SCHEDULER_KEYS:
-            raise ValueError(f"Unsupported scheduler_key {self.scheduler_key!r} for component {self.name}.")
+        if not self.expert_key:
+            raise ValueError(f"Component {self.name} must define a non-empty expert_key.")
+        if not self.scheduler_key:
+            raise ValueError(f"Component {self.name} must define a non-empty scheduler_key.")
         if self.node_scope not in SUPPORTED_NODE_SCOPES:
             raise ValueError(f"Unsupported node_scope {self.node_scope!r} for component {self.name}.")
         if not self.supported_atoms:
@@ -133,61 +113,3 @@ class MoEComponentConfig:
             raise ValueError(
                 f"Component {self.name} cannot score the nuclear-charge feature without using that feature."
             )
-
-
-EDM_QM9_ACTIVE_ATOMS: Final = ("H", "C", "N", "O", "F")
-EDM_GEOM_DRUG_ACTIVE_ATOMS: Final = ("B", "C", "N", "O", "F", "Al", "Si", "P", "S", "Cl", "As", "Br", "I", "Hg", "Bi")
-DIFFSBDD_CROSSDOCKED_ACTIVE_ATOMS: Final = ("C", "N", "O", "S", "B", "Br", "Cl", "P", "I", "F", "others")
-GEODIFF_QM9_ACTIVE_ATOMS: Final = ("H", "C", "N", "O", "F")
-
-
-EDM_QM9_FRAGMENT: Final = MoEComponentConfig(
-    name="EDM_QM9_FRAGMENT",
-    expert_key=EXPERT_EDM_QM9,
-    scheduler_key=SCHEDULER_EDM,
-    node_scope=NODE_SCOPE_FRAGMENT,
-    supported_atoms=EDM_QM9_ACTIVE_ATOMS,
-    uses_nuclear_charge_feature=True,
-    score_nuclear_charge_feature=True,
-)
-
-EDM_QM9_LIGAND: Final = MoEComponentConfig(
-    name="EDM_QM9_LIGAND",
-    expert_key=EXPERT_EDM_QM9,
-    scheduler_key=SCHEDULER_EDM,
-    node_scope=NODE_SCOPE_LIGAND,
-    supported_atoms=EDM_QM9_ACTIVE_ATOMS,
-    uses_nuclear_charge_feature=True,
-    score_nuclear_charge_feature=True,
-)
-
-EDM_GEOM_DRUG_LIGAND: Final = MoEComponentConfig(
-    name="EDM_GEOM_DRUG_LIGAND",
-    expert_key=EXPERT_EDM_GEOM_DRUG,
-    scheduler_key=SCHEDULER_EDM,
-    node_scope=NODE_SCOPE_LIGAND,
-    supported_atoms=EDM_GEOM_DRUG_ACTIVE_ATOMS,
-)
-
-GEODIFF_QM9_FRAGMENT: Final = MoEComponentConfig(
-    name="GEODIFF_QM9_FRAGMENT",
-    expert_key=EXPERT_GEODIFF_QM9,
-    scheduler_key=SCHEDULER_GEODIFF,
-    node_scope=NODE_SCOPE_FRAGMENT,
-    supported_atoms=GEODIFF_QM9_ACTIVE_ATOMS,
-    condition_keys=(CONDITION_FRAGMENT_MOL,),
-    fixed_atom_type_source=FIXED_ATOM_TYPE_SOURCE_FRAGMENT_MOL,
-    score_atom_types=False,
-)
-
-DIFFSBDD_CROSSDOCKED_FULLATOM_COND: Final = MoEComponentConfig(
-    name="DIFFSBDD_CROSSDOCKED_FULLATOM_COND",
-    expert_key=EXPERT_DIFFSBDD_CROSSDOCKED_FULLATOM_COND,
-    scheduler_key=SCHEDULER_DIFFSBDD,
-    node_scope=NODE_SCOPE_LIGAND,
-    supported_atoms=DIFFSBDD_CROSSDOCKED_ACTIVE_ATOMS,
-    condition_keys=(CONDITION_POCKET,),
-    scored_atoms=DIFFSBDD_CROSSDOCKED_ACTIVE_ATOMS[:-1],
-)
-
-EDM_GEOM_DRUG: Final = EDM_GEOM_DRUG_LIGAND

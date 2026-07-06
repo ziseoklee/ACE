@@ -4,6 +4,7 @@ import torch
 from jaxtyping import Bool, Float
 
 from sampling.distributions import MarginalScheduler, PointMassDistribution
+from sampling.moe_layout import ComponentFeatureAdapter
 from sampling.probability_path import PaddedProbabilityPath, ProbabilityPath, SDEScheduler
 
 DataMask = Bool[torch.Tensor, "data"]  # noqa: F821
@@ -24,6 +25,23 @@ class ScoringExpert(Protocol):
 
 class PaddedPathScheduler(SDEScheduler, MarginalScheduler, Protocol):
     pass
+
+
+class FeatureOrderScoreAdapter:
+    """Call an expert in native feature order while exposing global feature order."""
+
+    def __init__(self, expert: ScoringExpert, feature_adapter: ComponentFeatureAdapter):
+        self.expert = expert
+        self.feature_adapter = feature_adapter
+
+    def score(
+        self,
+        t: Float[torch.Tensor, "B 1"],
+        x: Float[torch.Tensor, "B data"],
+    ) -> Float[torch.Tensor, "B data"]:
+        x_native = self.feature_adapter.to_native(x)
+        score_native = self.expert.score(t, x_native)
+        return self.feature_adapter.to_global(score_native)
 
 
 def make_zero_auxiliary_point(
@@ -50,6 +68,7 @@ def build_padded_expert_path(
     auxiliary_mask: DataMask,
     auxiliary_point: AuxiliaryPoint,
     device: str,
+    feature_adapter: ComponentFeatureAdapter,
     reverse: bool = True,
 ) -> PaddedProbabilityPath:
     """Build an expert score path padded with a fixed-point auxiliary path."""
@@ -59,7 +78,8 @@ def build_padded_expert_path(
     if auxiliary_point.numel() != int(auxiliary_mask.sum().item()):
         raise ValueError("auxiliary_point size must match auxiliary_mask true count.")
 
-    main_path = ProbabilityPath(scheduler, expert.score, reverse=reverse)
+    score_expert = FeatureOrderScoreAdapter(expert, feature_adapter)
+    main_path = ProbabilityPath(scheduler, score_expert.score, reverse=reverse)
     auxiliary_distribution = PointMassDistribution(auxiliary_point, device=device)
     auxiliary_score = auxiliary_distribution.export_score_function(scheduler)
     auxiliary_path = ProbabilityPath(scheduler, auxiliary_score, reverse=reverse)
