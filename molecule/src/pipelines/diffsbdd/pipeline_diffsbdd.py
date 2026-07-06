@@ -3,6 +3,8 @@ from __future__ import annotations
 import functools
 from typing import cast
 
+import torch
+
 from configs.config_moe_component import CONDITION_POCKET, NODE_SCOPE_LIGAND
 from experts.base_expert import SBDDExpert
 from experts.diffsbdd_expert import DiffSBDDExpert
@@ -73,7 +75,17 @@ class DiffSBDDPipeline(ExpertPipeline):
         active_mask: DataMask,
     ) -> PostprocessFn:
         expert = cast(DiffSBDDExpert, component_runtime.expert)
-        return functools.partial(expert.postprocess, mask=active_mask)
+        feature_adapter = layout.feature_adapter_for_component(component_runtime.config)
+
+        def _postprocess(x):
+            x_out = x.clone()
+            x_native = feature_adapter.to_native(x_out[..., active_mask])
+            native_mask = torch.ones(x_native.shape[-1], dtype=torch.bool, device=x.device)
+            x_native = expert.postprocess(x_native, mask=native_mask)
+            x_out[..., active_mask] = feature_adapter.to_global(x_native)
+            return x_out
+
+        return _postprocess
 
     def sbdd_expert(self, component_runtime) -> SBDDExpert | None:
         return cast(DiffSBDDExpert, component_runtime.expert)

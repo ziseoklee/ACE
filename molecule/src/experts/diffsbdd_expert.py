@@ -141,9 +141,12 @@ class DiffSBDDExpert(MoEExpertABC):
         x = x.reshape(data_shape)
         num_timesteps = model.T
 
-        i = (num_timesteps * t).int().clamp(1, num_timesteps - 1)[0].item()
+        if not torch.allclose(t, t[:1].expand_as(t)):
+            raise ValueError("DiffSBDD score expects all samples in the batch to share the same timestep.")
 
-        t_array = torch.full((batch_size, 1), fill_value=i, device=self.device)
+        i = torch.round(num_timesteps * t[0, 0]).long().clamp(1, num_timesteps).item()
+
+        t_array = torch.full((batch_size, 1), fill_value=i, device=self.device, dtype=t.dtype)
         t_array = t_array / num_timesteps
 
         gamma_t = model.ddpm.gamma(t_array)
