@@ -58,6 +58,7 @@ def run_crossdocked_inference(cfg: DictConfig, output_dir: Path) -> None:
         component_configs=component_configs,
         global_scheduler_key=moe_cfg.global_scheduler_key,
         exponent_configs=moe_cfg.exponents,
+        diffusion_scale=moe_cfg.diffusion_scale,
     )
     log_exponent_list(runtime.exponent_list, [component.component_id for component in runtime.components])
 

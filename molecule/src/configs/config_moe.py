@@ -28,12 +28,19 @@ class MoEExponentConfig:
 
 @dataclass
 class MoEConfig:
-    """Structured config for how component paths are composed into one MoE path."""
+    """Structured config for how component paths are composed into one MoE path.
+
+    WARNING: diffusion_scale is an empirical multiplier for the global MoE SDE
+    diffusion coefficient. A value of 2.0 works well in DiffSBDD and 4-expert
+    MoE inference, but not consistently in EDM-only or GeoDiff-only inference.
+    The reason for this scale is not yet fully understood.
+    """
 
     omega: float
     components: dict[str, MoEComponentConfig]
     exponents: dict[str, MoEExponentConfig]
     global_scheduler_key: str
+    diffusion_scale: float = 2.0
 
     def __post_init__(self) -> None:
         self.components = dict(self.components)
@@ -41,6 +48,8 @@ class MoEConfig:
 
         if not math.isfinite(float(self.omega)):
             raise ValueError("MoE omega must be finite.")
+        if not math.isfinite(float(self.diffusion_scale)) or self.diffusion_scale <= 0:
+            raise ValueError("MoE diffusion_scale must be positive and finite.")
         if not self.global_scheduler_key:
             raise ValueError("MoE global_scheduler_key must be non-empty.")
         if not self.components:

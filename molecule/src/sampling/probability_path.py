@@ -1,4 +1,5 @@
 import logging
+import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Protocol
@@ -176,16 +177,20 @@ class MoEProbabilityPath(ProbabilityPathABC):
         exponent_list: list[ExponentFunctionType],
         sample_size: int,
         node_feature_dim: int,
+        diffusion_scale: float = 2.0,  # FIXME: this value works well in DiffSBDD and 4-expert MoE inference but not consistently in EDM-only or GeoDiff-only inference. The reason for the default scale 2.0 is not yet fully understood.
     ):
         super().__init__()
         if not isinstance(node_feature_dim, int) or node_feature_dim <= 0:
             raise ValueError(f"node_feature_dim must be a positive int, got {node_feature_dim!r}.")
+        if not math.isfinite(float(diffusion_scale)) or diffusion_scale <= 0:
+            raise ValueError(f"diffusion_scale must be positive and finite, got {diffusion_scale!r}.")
 
         self.q_list = q_list
         self.mask_list = mask_list
         self.reverse = self.check_reverse()
         self.exponent_list = exponent_list
         self.scheduler = scheduler
+        self.diffusion_scale = float(diffusion_scale)
 
         self.sample_size = sample_size
         self.node_feature_dim = node_feature_dim
@@ -311,12 +316,10 @@ class MoEProbabilityPath(ProbabilityPathABC):
 
     def sigma(self, t: Float[torch.Tensor, "B 1"]) -> Float[torch.Tensor, "B 1"]:
         """Diffusion coefficient of MoE SDE, calculated as diffusion of global scheduler (not a mixture)."""
-        # gamma = 1.0 # FIXME: this is working well in EDM, GeoDiff inference but not in DiffSBDD inference.
-        gamma = 2.0  # FIXME: this is working well in DiffSBDD, 4-expert MoE inference but not in EDM, GeoDiff inference. I have no idea why this is 2.0, but it seems to work well in practice.
         if not self.reverse:
-            return gamma * self.scheduler.diffusion_coeff(t)
+            return self.diffusion_scale * self.scheduler.diffusion_coeff(t)
         else:
-            return gamma * self.scheduler.diffusion_coeff(1 - t)
+            return self.diffusion_scale * self.scheduler.diffusion_coeff(1 - t)
 
     def get_dlogq(
         self,

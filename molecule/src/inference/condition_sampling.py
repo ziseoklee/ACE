@@ -138,6 +138,7 @@ def build_condition_probability_path(
         exponent_list=runtime.exponent_list,
         sample_size=layout.sample_size,
         node_feature_dim=layout.node_feature_dim,
+        diffusion_scale=runtime.diffusion_scale,
     )
 
     return ConditionProbabilityPath(

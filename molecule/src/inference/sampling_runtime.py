@@ -42,6 +42,7 @@ class SamplingRuntime:
     exponent_list: list[ExponentFunctionType]
     global_scheduler_key: str
     global_scheduler: PaddedPathScheduler
+    diffusion_scale: float
 
     def get_component(self, name: str) -> ComponentRuntime:
         for component in self.components:
@@ -146,6 +147,7 @@ def load_sampling_runtime(
     component_configs: list[ComponentConfigEntry],
     global_scheduler_key: str,
     exponent_configs: Mapping[str, MoEExponentConfig],
+    diffusion_scale: float,
 ) -> SamplingRuntime:
     if not component_configs:
         raise ValueError("At least one MoE component must be provided by config.")
@@ -165,6 +167,7 @@ def load_sampling_runtime(
         exponent_list=exponent_list,
         global_scheduler_key=global_scheduler_key,
         global_scheduler=registry.make_scheduler(global_scheduler_key),
+        diffusion_scale=diffusion_scale,
     )
 
 

@@ -22,6 +22,10 @@ data:
 moe:
   omega: ???
   global_scheduler_key: GEODIFF
+  # WARNING/FIXME: This empirical multiplier works well in DiffSBDD and
+  # 4-expert MoE inference, but not consistently in EDM-only or GeoDiff-only
+  # inference. The reason for the default value 2.0 is not yet fully understood.
+  diffusion_scale: 2.0
   exponents:
     edm_fragment:
       weight_scale: -1.0
