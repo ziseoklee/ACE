@@ -5,8 +5,8 @@ defaults:
   - weight@moe.exponents.edm_ligand.weight_fn: ConstantWeight
   - weight@moe.exponents.geodiff_fragment.weight_fn: ConstantWeight
   - weight@moe.exponents.diffsbdd.weight_fn: ACEBumpWeight
-  - moe_component@moe.components.edm_fragment: EDM_QM9_FRAGMENT
-  - moe_component@moe.components.edm_ligand: EDM_QM9_LIGAND
+  - moe_component@moe.components.edm_fragment: EDM_GEOM_DRUG_FRAGMENT
+  - moe_component@moe.components.edm_ligand: EDM_GEOM_DRUG_LIGAND
   - moe_component@moe.components.geodiff_fragment: GEODIFF_QM9_FRAGMENT
   - moe_component@moe.components.diffsbdd: DIFFSBDD_CROSSDOCKED_FULLATOM_COND
   - _self_

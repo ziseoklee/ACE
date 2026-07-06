@@ -145,13 +145,6 @@ def docking(
     help="Directory to save evaluation results.",
 )
 @click.option(
-    "--max_ligand_atoms",
-    type=int,
-    default=29,
-    show_default=True,
-    help="Maximum number of atoms allowed in a ligand.",
-)
-@click.option(
     "--docking_exhaustiveness",
     type=int,
     default=8,
@@ -185,7 +178,6 @@ def crossdocked(
     metrics: tuple[str, ...],
     expected_num_samples: int | None,
     output_dir: Path | None,
-    max_ligand_atoms: int,
     docking_exhaustiveness: int,
     docking_num_modes: int,
     docking_seed: int,
@@ -198,7 +190,6 @@ def crossdocked(
         metrics=_parse_metrics(metrics),
         expected_num_samples=expected_num_samples,
         output_dir=output_dir,
-        max_ligand_atoms=max_ligand_atoms,
         docking_exhaustiveness=docking_exhaustiveness,
         docking_num_modes=docking_num_modes,
         docking_seed=docking_seed,

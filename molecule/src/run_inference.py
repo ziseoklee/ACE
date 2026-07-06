@@ -70,14 +70,6 @@ def run_inference(cfg: DictConfig, output_dir: Path) -> None:
             ligand.GetNumAtoms(),
         )
 
-    if num_ligand_atoms > 29:
-        logger.warning(
-            "29 atoms is the maximum supported number of atoms for the ligand in EDM training. "
-            "However, the ligand in input data has %d atoms, which exceeds the limit. "
-            "Please note that results may be unreliable.",
-            num_ligand_atoms,
-        )
-
     inference_output_dir = output_dir / "inference_output"
     if inference_output_dir.exists():
         shutil.rmtree(inference_output_dir)

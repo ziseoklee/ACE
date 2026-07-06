@@ -31,8 +31,6 @@ from utils.molecule_drawing import molecule_to_topology_png
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-MAX_EDM_LIGAND_ATOMS = 29
-
 
 def run_crossdocked_inference(cfg: DictConfig, output_dir: Path) -> None:
     benchmark_cfg = cast(CrossDocked2020BenchConfig, OmegaConf.to_object(cfg.benchmark))
@@ -86,16 +84,6 @@ def run_crossdocked_inference(cfg: DictConfig, output_dir: Path) -> None:
             )
         except Exception:
             logger.exception("Failed to prepare task %s", task_path.stem)
-            continue
-
-        num_ligand_atoms = condition.ref_ligand.GetNumAtoms()
-        if num_ligand_atoms > MAX_EDM_LIGAND_ATOMS:
-            logger.warning(
-                "Task %s skipped due to ligand having %d atoms, which exceeds the EDM limit of %d.",
-                task_path.stem,
-                num_ligand_atoms,
-                MAX_EDM_LIGAND_ATOMS,
-            )
             continue
 
         task_save_dir = inference_save_dir / task_path.stem

@@ -45,7 +45,6 @@ def evaluate_crossdocked_run(
     metrics: Sequence[str] = ("druglikeness", "docking"),
     expected_num_samples: int | None = None,
     output_dir: Path | None = None,
-    max_ligand_atoms: int = 29,
     docking_exhaustiveness: int = 8,
     docking_num_modes: int = 9,
     docking_seed: int = 42,

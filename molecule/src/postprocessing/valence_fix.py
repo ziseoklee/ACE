@@ -36,11 +36,6 @@ def postprocess_valfix(
     logger.info(f"output_ligand_dir: {output_ligand_dir}")
 
     fragment_mol: Chem.Mol = Chem.SDMolSupplier(str(fragment_sdf_path), sanitize=False)[0]
-    ref_ligand_mol: Chem.Mol = Chem.SDMolSupplier(str(ref_ligand_sdf_path), sanitize=False)[0]
-    if num_ligand_atoms := ref_ligand_mol.GetNumAtoms() > 29:
-        logger.warning(
-            f"29 atoms is the maximum supported number of atoms for the ligand in EDM training. However, the ligand in input data has {num_ligand_atoms} atoms, which exceeds the limit. Please note that results may be unreliable."
-        )
 
     # For each generated ligand, reconstruct it with the fragment and save it to output_ligand_dir.
     for j in range(num_samples):
