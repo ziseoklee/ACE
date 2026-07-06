@@ -22,16 +22,26 @@ uv run ace-infer \
     sampler=ACESampler \
     sampler.batch_size=5 \
     sampler.seed=42 \
-    weight=ACEBumpWeight \
-    weight.omega=1.4 \
-    weight.B1=30 \
-    weight.B2=0.336 \
+    moe.omega=1.4 \
+    moe.diffusion_scale=2.0 \
+    moe.exponents.diffsbdd.weight_fn.B1=30 \
+    moe.exponents.diffsbdd.weight_fn.B2=0.336 \
     data.num_ligand_atoms=28
 ```
 
 Please refer to [`config_sampler.py`](src/configs/config_sampler.py), [`config_weight.py`](src/configs/config_weight.py), [`config_benchmark.py`](src/configs/config_benchmark.py), [`inference.yaml`](src/configs/inference.yaml), and [`crossdocked_inference.yaml`](src/configs/crossdocked_inference.yaml) for configuration options. [`config.py`](src/configs/config.py) registers these structured configs with Hydra. You can also run `uv run ace-infer --cfg job` to print the resolved inference config.
 
 For single-condition inference, `data.num_ligand_atoms=null` uses the reference ligand atom count. Set `data.num_ligand_atoms=<int>` to sample a ligand with an explicitly chosen number of atoms.
+
+The MoE diffusion coefficient is controlled by `moe.diffusion_scale`. The default value is `2.0`; this is an empirical setting that works well in DiffSBDD and 4-expert MoE inference, but it is not consistently optimal for EDM-only or GeoDiff-only inference. The reason for this scale is not yet fully understood, so treat it as an experimental knob.
+
+For explicit expert-composition examples, see:
+
+```bash
+bash scripts/run_example_moe_sampling.sh
+```
+
+That script demonstrates single-expert runs and guided MoE runs using EDM-GEOM-Drug, GeoDiff-QM9, and DiffSBDD-CrossDocked components.
 
 ### Run evaluation for generated samples
 
@@ -73,7 +83,7 @@ Please check `uv run ace-evaluate druglikeness --help` or `uv run ace-evaluate d
 
 ### Run benchmark for CrossDocked2020
 
-We use processed CrossDocked2020 test data of [Delete](https://www.nature.com/articles/s42256-025-00997-w) in https://zenodo.org/records/7980002. Excluding the case where the ligand has more than 29 atoms, we have 76 ligand-pocket pairs for evaluation. You can run the benchmark with the following command:
+We use processed CrossDocked2020 test data of [Delete](https://www.nature.com/articles/s42256-025-00997-w) in https://zenodo.org/records/7980002. You can run the benchmark with the following command:
 
 ```bash
 # Inference
@@ -82,10 +92,10 @@ uv run ace-crossdocked-infer \
     benchmark.seed=42 \
     sampler=ACESampler \
     sampler.batch_size=5 \
-    weight=ACEBumpWeight \
-    weight.omega=1.4 \
-    weight.B1=30 \
-    weight.B2=0.336
+    moe.omega=1.4 \
+    moe.diffusion_scale=2.0 \
+    moe.exponents.diffsbdd.weight_fn.B1=30 \
+    moe.exponents.diffsbdd.weight_fn.B2=0.336
 
 # Inference output structure will look like:
 #   outputs/crossdocked2020/{sampler_weight_timestamp}/inference/{task_id}/{sample}.sdf
@@ -115,6 +125,7 @@ src/
 ├── configs/                      # Hydra structured configs and default yaml files
 ├── inference/                    # Condition-level orchestration and shared runtime loading
 ├── experts/                      # Adapters for pretrained DiffSBDD, EDM, and GeoDiff experts
+├── pipelines/                    # Expert component specs, schedulers, and pipeline adapters
 ├── sampling/                     # Probability paths, schedulers, MoE path construction, and samplers
 ├── postprocessing/               # Molecule building plus deprecated scaffold/valence helpers
 ├── evaluation/                   # Click CLI, metrics, CrossDocked2020 evaluation, and summaries
@@ -149,28 +160,33 @@ uv run python src/utils/peek_crossdocked_sample.py 85
 
 This prints the stored pocket/scaffold metadata and writes 2D topology PNGs for the fragment and ligand.
 
-### Atom feature layout
+### MoE Components And Atom Feature Layout
 
-The current shared MoE layout is specialized for the GeoDiff-QM9, EDM-QM9, and DiffSBDD-CrossDocked expert combination. If you swap or add experts, update `src/sampling/moe_layout.py` so the shared atom-feature vocabulary and each expert mask match the models' training representations. The layout file keeps model-specific constants such as `_DIFFSBDD_CROSSDOCKED_ACTIVE_ATOMS`, `_EDM_QM9_ACTIVE_ATOMS`, and their active/padding columns.
+MoE components are configured under `moe.components`, and their exponent rules are configured under `moe.exponents`. Component configs live near each expert pipeline, for example:
 
-The shared per-atom state is:
+- `src/pipelines/edm/components.py`
+- `src/pipelines/geodiff/components.py`
+- `src/pipelines/diffsbdd/components.py`
+
+The shared atom-feature layout is built dynamically from the selected MoE components. `src/sampling/moe_layout.py` forms the union of configured atom vocabularies, chooses a canonical global order, and builds per-component adapters so each expert still receives features in its native training order.
+
+The shared per-atom state has this general structure:
 
 ```text
-[x, y, z, C, N, O, S, B, Br, Cl, P, I, F, H, nuclear_charge_feature]
+[x, y, z, atom_type..., optional_nuclear_charge_feature]
 ```
 
-The atom-type indices are:
+Supported EDM components currently include:
 
-```text
-C=0, N=1, O=2, S=3, B=4, Br=5, Cl=6, P=7, I=8, F=9, H=10
-```
+- `EDM_QM9_FRAGMENT`, `EDM_QM9_LIGAND`: `H, C, N, O, F` plus the EDM integer nuclear-charge feature.
+- `EDM_GEOM_DRUG_FRAGMENT`, `EDM_GEOM_DRUG_LIGAND`: `H, B, C, N, O, F, Al, Si, P, S, Cl, As, Br, I, Hg, Bi` without the nuclear-charge feature.
 
 Expert representations differ:
 
 - DiffSBDD-CrossDocked uses `C, N, O, S, B, Br, Cl, P, I, F, others`. In the current MoE combination, DiffSBDD owns the heavy-atom decode for `C/N/O/S/B/Br/Cl/P/I/F`; `H` and the nuclear-charge feature are padding for DiffSBDD.
-- EDM-QM9 uses `H, C, N, O, F` plus an integer nuclear-charge feature. In the current MoE combination, only the EDM-owned `H` channel is decoded by EDM postprocessing; `C/N/O/F` are left to DiffSBDD to avoid double unnormalization. The final integer feature is the atomic number feature, not RDKit formal charge, and is ignored by molecule construction.
+- EDM-QM9 uses `H, C, N, O, F` plus an integer nuclear-charge feature. EDM-GEOM-Drug uses a larger GEOM-Drug atom vocabulary and no nuclear-charge feature. EDM postprocessing decodes selected EDM-owned categorical channels from latent scale. The EDM integer feature, when present, is the atomic number feature, not RDKit formal charge, and is ignored by molecule construction.
 - GeoDiff uses fragment atom types as fixed auxiliary features for the fragment coordinate path. The nuclear-charge feature is zero-padded there.
 
 ## Additional Remarks
 
-Combining DiffSBDD and EDM in the current MoE setup is relatively straightforward because both models apply the same `1/4` scaling to atom features, which makes their sample spaces reasonably aligned. More general expert combinations may require explicit feature-space calibration.
+Combining DiffSBDD and EDM in the current MoE setup is relatively straightforward because both models apply the same `1/4` scaling to atom features, which makes their sample spaces reasonably aligned. More general expert combinations may require explicit feature-space calibration. The global MoE SDE diffusion scale is also empirical at the moment; use `moe.diffusion_scale` when comparing EDM-only, GeoDiff-only, DiffSBDD-only, and multi-expert runs.
