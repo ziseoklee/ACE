@@ -4,9 +4,10 @@ import functools
 from typing import cast
 
 from configs.config_moe_component import NODE_SCOPE_LIGAND
-from experts.edm_expert import EDMExpert
+from experts.edm_expert import EDM_PRETRAINED_GEOM_DRUG, EDM_PRETRAINED_QM9, EDMExpert
 from pipelines.base import DataMask, ExpertPipeline
 from pipelines.edm.components import (
+    EDM_GEOM_DRUG_FRAGMENT,
     EDM_GEOM_DRUG_LIGAND,
     EDM_QM9_FRAGMENT,
     EDM_QM9_LIGAND,
@@ -21,17 +22,18 @@ from sampling.scheduler import EDMScheduler
 
 
 class EDMPipeline(ExpertPipeline):
-    """Pipeline adapter for the pretrained EDM-QM9 expert."""
+    """Pipeline adapter for pretrained EDM experts."""
 
     expert_keys = (EXPERT_EDM_QM9, EXPERT_EDM_GEOM_DRUG)
     scheduler_keys = (SCHEDULER_EDM,)
-    component_configs = (EDM_QM9_FRAGMENT, EDM_QM9_LIGAND, EDM_GEOM_DRUG_LIGAND)
+    component_configs = (EDM_QM9_FRAGMENT, EDM_QM9_LIGAND, EDM_GEOM_DRUG_FRAGMENT, EDM_GEOM_DRUG_LIGAND)
 
-    # TODO: support both EDM-QM9 and EDM-GEOM-DRUG, but the latter is not yet implemented. For now, we only support EDM-QM9.
     def load_expert(self, *, device: str, component_config) -> EDMExpert:
         if component_config.expert_key == EXPERT_EDM_GEOM_DRUG:
-            raise NotImplementedError("EDM_GEOM_DRUG is registered as a component spec, but its loader is not ready.")
-        return EDMExpert.from_pretrained(device=device)
+            return EDMExpert.from_pretrained(device=device, pretrained_model=EDM_PRETRAINED_GEOM_DRUG)
+        if component_config.expert_key == EXPERT_EDM_QM9:
+            return EDMExpert.from_pretrained(device=device, pretrained_model=EDM_PRETRAINED_QM9)
+        raise ValueError(f"EDMPipeline does not support expert_key {component_config.expert_key!r}.")
 
     def make_scheduler(self, scheduler_key: str) -> PaddedPathScheduler:
         if scheduler_key != SCHEDULER_EDM:
@@ -74,11 +76,11 @@ class EDMPipeline(ExpertPipeline):
     ) -> PostprocessFn:
         component = component_runtime.config
         expert = cast(EDMExpert, component_runtime.expert)
-        h_mask = layout.h_atom_type_mask_for_scope(component.node_scope)
-        # FIXME: This is a hack to avoid postprocessing hydrogens twice when mixing two EDM experts.
+        categorical_mask = layout.atom_type_mask_for_component(component)
+        # FIXME: This is a hack to avoid postprocessing categorical features twice when mixing two EDM experts.
         if component.node_scope != NODE_SCOPE_LIGAND:
-            h_mask = None
-        return functools.partial(expert.postprocess, h_mask=h_mask)
+            categorical_mask = None
+        return functools.partial(expert.postprocess, categorical_mask=categorical_mask)
 
     def atom_type_feature_value(self, component_runtime) -> float | None:
         expert = cast(EDMExpert, component_runtime.expert)
