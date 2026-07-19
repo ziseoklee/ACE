@@ -84,9 +84,12 @@ popd > /dev/null
 
 
 ###################################################################################################
-# 2. Sync the project with the latest changes from the main branch.
-printf "2. Syncing project with the latest changes from the main branch...\n"
-uv sync
+# 2. Create/update this experiment's local .venv from the committed lockfile.
+printf "2. Syncing the molecule environment from uv.lock...\n"
+if [ ! -d "$PROJECT_ROOT/.venv" ]; then
+    uv venv --python 3.11
+fi
+uv sync --frozen
 ###################################################################################################
 
 printf "\e[32m\u2714\e[0m Project setup complete!\n"

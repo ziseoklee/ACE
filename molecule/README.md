@@ -1,192 +1,156 @@
-# ACE for SBDD
+# ACE for flexible-pose scaffold decoration
 
-Implementation of ACE for drug design tasks presented in the paper: scaffold decoration.
+This project implements the paper's molecular application: composing pretrained de-novo (EDM), conformer (GeoDiff), and pocket-conditioned structure-based design (DiffSBDD) experts for flexible-pose scaffold decoration. ACE applies the paper's time-varying exponent correction and particle resampling to the heterogeneous ratio-of-densities path.
 
-## Usage
+## Requirements
 
-### Setup project
+- Linux x86-64 with an NVIDIA CUDA GPU (the locked environment uses PyTorch 2.4.1 and CUDA 12.1 wheels)
+- Git, curl, wget, and tar
+- [uv](https://docs.astral.sh/uv/) and Python 3.11
+- Approximately 15 GB of free space for environments, submodules, and model checkpoints, plus space for generated samples
+
+QuickVina 2 is bundled at `src/lib/qvina2/qvina02`. Pretrained repositories and checkpoints retain their upstream licenses and terms.
+
+## Installation
+
+From a fresh clone:
 
 ```bash
 git clone https://github.com/ziseoklee/ACE.git
 cd ACE/molecule
-
 bash scripts/setup_project.sh
 ```
 
-### Run Mixture of Experts (MoE) sampling for scaffold decoration
+The idempotent setup script initializes the three pinned Git submodules, applies the checked-in packaging/runtime compatibility patches, downloads the DiffSBDD and GeoDiff checkpoints when absent, creates `molecule/.venv` with `uv venv`, and installs the committed environment with `uv sync --frozen`.
 
-You can run ACE sampler with the following command:
+Run the setup from inside the ACE repository. Model downloads require network access; rerunning the script skips checkpoints already present.
+
+Verify the installation without sampling:
+
+```bash
+uv run ace-infer --help
+uv run ace-evaluate --help
+uv run python -m compileall -q src
+```
+
+## Single-condition ACE inference
+
+The following command uses the paper's four-expert scaffold-decoration composition and ACE bump parameters (`B1=30`, `B2=0.336`) on the included `4m7t` example:
 
 ```bash
 uv run ace-infer \
-    sampler=ACESampler \
-    sampler.batch_size=5 \
-    sampler.seed=42 \
-    moe.omega=1.4 \
-    moe.diffusion_scale=2.0 \
-    moe.exponents.diffsbdd.weight_fn.B1=30 \
-    moe.exponents.diffsbdd.weight_fn.B2=0.336 \
-    data.num_ligand_atoms=28
+  sampler=ACESampler \
+  sampler.batch_size=5 \
+  sampler.seed=42 \
+  moe.omega=1.4 \
+  moe.diffusion_scale=2.0 \
+  moe.exponents.diffsbdd.weight_fn.B1=30 \
+  moe.exponents.diffsbdd.weight_fn.B2=0.336 \
+  data.num_ligand_atoms=28
 ```
 
-Please refer to [`config_sampler.py`](src/configs/config_sampler.py), [`config_weight.py`](src/configs/config_weight.py), [`config_benchmark.py`](src/configs/config_benchmark.py), [`inference.yaml`](src/configs/inference.yaml), and [`crossdocked_inference.yaml`](src/configs/crossdocked_inference.yaml) for configuration options. [`config.py`](src/configs/config.py) registers these structured configs with Hydra. You can also run `uv run ace-infer --cfg job` to print the resolved inference config.
+The default inputs are `examples/4m7t_pocket.pdb`, `examples/4m7t_fragment.sdf`, and `examples/4m7t_ligand.sdf`. Set `data.num_ligand_atoms=null` to use the reference ligand atom count, or set an integer to control the generated ligand size. Hydra writes the resolved config and generated SDF/XYZ/PNG files under `outputs/` unless `output_dir` is overridden.
 
-For single-condition inference, `data.num_ligand_atoms=null` uses the reference ligand atom count. Set `data.num_ligand_atoms=<int>` to sample a ligand with an explicitly chosen number of atoms.
+Inspect the complete resolved configuration with:
 
-The MoE diffusion coefficient is controlled by `moe.diffusion_scale`. The default value is `2.0`; this is an empirical setting that works well in DiffSBDD and 4-expert MoE inference, but it is not consistently optimal for EDM-only or GeoDiff-only inference. The reason for this scale is not yet fully understood, so treat it as an experimental knob.
+```bash
+uv run ace-infer --cfg job moe.omega=1.4
+```
 
-For explicit expert-composition examples, see:
+Configuration definitions are in `src/configs/`; `inference.yaml` records the default paper composition. `moe.diffusion_scale=2.0` is an empirical setting for DiffSBDD and four-expert MoE inference and should be reported when comparing configurations. It is not consistently optimal for single-expert EDM or GeoDiff runs.
+
+For controlled examples covering each single expert, two-expert guidance, and the four-expert ACE composition, run:
 
 ```bash
 bash scripts/run_example_moe_sampling.sh
 ```
 
-That script demonstrates single-expert runs and guided MoE runs using EDM-GEOM-Drug, GeoDiff-QM9, and DiffSBDD-CrossDocked components.
+The script accepts environment overrides such as `DEVICE=cuda:1`, `OMEGA=1.4`, `SEED=42`, `B1=30`, and `B2=0.336`.
 
-### Run evaluation for generated samples
+## CrossDocked2020 benchmark
 
-We support two evaluation metrics: druglikeness and docking. You can run the evaluation with the following commands:
+The repository includes the 76 processed benchmark tasks and their corresponding pocket/ligand files under `data/crossdocked/`. They are derived from the processed CrossDocked2020 release used by [Delete](https://www.nature.com/articles/s42256-025-00997-w), available from [Zenodo record 7980002](https://zenodo.org/records/7980002).
+
+Generate five samples per task (one trial with the default batch size of five) using the paper configuration:
 
 ```bash
-uv run ace-evaluate druglikeness --ligand_sdf examples/4m7t_ligand.sdf
+uv run ace-crossdocked-infer \
+  benchmark.num_trials=1 \
+  benchmark.seed=42 \
+  sampler=ACESampler \
+  sampler.batch_size=5 \
+  moe.omega=1.4 \
+  moe.diffusion_scale=2.0 \
+  moe.exponents.diffsbdd.weight_fn.B1=30 \
+  moe.exponents.diffsbdd.weight_fn.B2=0.336
+```
 
-# Druglikeness evaluation will look like:
-# {
-#   "Lipinski": 0.8,
-#   "LogP": -4.141399999999994,
-#   "QED": 0.186774247976761,
-#   "SA": 0.44362465057886624,
-#   "ligand_sdf": "examples/4m7t_ligand.sdf",
-#   "validity": 1.0
-# }
+The run directory has this structure:
 
+```text
+outputs/crossdocked2020/<run>/
+├── inference/<task_id>/<sample>.sdf
+├── inference/<task_id>/<sample>.xyz
+├── inference/<task_id>/<sample>.png
+└── inference/<task_id>/fragment.png
+```
+
+Evaluate druglikeness and QuickVina 2 docking for a completed run:
+
+```bash
+uv run ace-evaluate crossdocked \
+  --run_dir outputs/crossdocked2020/<run> \
+  --metrics druglikeness \
+  --metrics docking \
+  --expected_num_samples 5
+```
+
+This writes sample-, task-, and run-level tables to `<run>/evaluation/{samples,tasks,summary}.csv`. Keep the inference seed, batch size, guidance scale, bump parameters, diffusion scale, docking seed, and docking settings unchanged when comparing with the paper.
+
+## Evaluate an individual molecule
+
+The included examples provide lightweight evaluation checks:
+
+```bash
+uv run ace-evaluate druglikeness \
+  --ligand_sdf examples/4m7t_ligand.sdf
 
 uv run ace-evaluate docking \
-    --pocket_pdb examples/4m7t_pocket.pdb \
-    --ligand_sdf examples/4m7t_ligand.sdf \
-    --seed 42
-
-# Docking evaluation output will look like:
-# {
-#   "docking_error": "",
-#   "docking_success": 1.0,
-#   "ligand_sdf": "examples/4m7t_ligand.sdf",
-#   "pocket_pdb": "examples/4m7t_pocket.pdb",
-#   "qvina_affinity": -8.6,
-#   "qvina_cmd": "/path/to/project/src/lib/qvina2/qvina02 --receptor /tmp/tmps3i6_twt/receptor.pdbqt --ligand /tmp/tmps3i6_twt/ligand.pdbqt --center_x 4.010 --center_y -10.296 --center_z 17.053 --size_x 21.756 --size_y 21.869 --size_z 27.589 --exhaustiveness 8 --num_modes 9 --seed 42 --out /tmp/tmps3i6_twt/qvina_poses.pdbqt",
-#   "qvina_num_poses": 9,
-#   "ref_ligand_sdf": null
-# }
+  --pocket_pdb examples/4m7t_pocket.pdb \
+  --ligand_sdf examples/4m7t_ligand.sdf \
+  --ref_ligand_sdf examples/4m7t_ligand.sdf \
+  --seed 42
 ```
 
-Please check `uv run ace-evaluate druglikeness --help` or `uv run ace-evaluate docking --help` for more details on the evaluation options. Or you can check the cli entrypoint in `src/evaluation/cli.py` for more details.
+Use `uv run ace-evaluate <command> --help` for all metric and output options.
 
-### Run benchmark for CrossDocked2020
-
-We use processed CrossDocked2020 test data of [Delete](https://www.nature.com/articles/s42256-025-00997-w) in https://zenodo.org/records/7980002. You can run the benchmark with the following command:
-
-```bash
-# Inference
-uv run ace-crossdocked-infer \
-    benchmark.num_trials=1 \
-    benchmark.seed=42 \
-    sampler=ACESampler \
-    sampler.batch_size=5 \
-    moe.omega=1.4 \
-    moe.diffusion_scale=2.0 \
-    moe.exponents.diffsbdd.weight_fn.B1=30 \
-    moe.exponents.diffsbdd.weight_fn.B2=0.336
-
-# Inference output structure will look like:
-#   outputs/crossdocked2020/{sampler_weight_timestamp}/inference/{task_id}/{sample}.sdf
-#   outputs/crossdocked2020/{sampler_weight_timestamp}/inference/{task_id}/{sample}.xyz
-#   outputs/crossdocked2020/{sampler_weight_timestamp}/inference/{task_id}/{sample}.png
-#   outputs/crossdocked2020/{sampler_weight_timestamp}/inference/{task_id}/fragment.png
-
-
-# Evaluation
-uv run ace-evaluate crossdocked \
-    --run_dir outputs/crossdocked2020/{run_name} \
-    --metrics druglikeness --metrics docking \
-    --expected_num_samples 5
-
-# Evaluation output structure will look like:
-#   outputs/crossdocked2020/{run}/evaluation/{samples,tasks,summary}.csv
-```
-
-## Source layout
-
-The scaffold-decoration workflow is organized around a few small layers:
+## Implementation map
 
 ```text
 src/
-├── run_inference.py              # Hydra entrypoint for one scaffold-decoration inference
-├── run_crossdocked_inference.py  # Hydra entrypoint for CrossDocked2020 benchmark inference
-├── configs/                      # Hydra structured configs and default yaml files
-├── inference/                    # Condition-level orchestration and shared runtime loading
-├── experts/                      # Adapters for pretrained DiffSBDD, EDM, and GeoDiff experts
-├── pipelines/                    # Expert component specs, schedulers, and pipeline adapters
-├── sampling/                     # Probability paths, schedulers, MoE path construction, and samplers
-├── postprocessing/               # Molecule building plus deprecated scaffold/valence helpers
-├── evaluation/                   # Click CLI, metrics, CrossDocked2020 evaluation, and summaries
-├── pretrained_models/            # Vendored pretrained expert repositories
-├── lib/                          # Packaged external binaries such as qvina2
-└── utils/                        # Small shared utilities
+├── run_inference.py              # One scaffold-decoration condition
+├── run_crossdocked_inference.py  # CrossDocked2020 benchmark driver
+├── configs/                      # Hydra configs and paper parameters
+├── experts/                      # EDM, GeoDiff, and DiffSBDD adapters
+├── pipelines/                    # Component specifications and schedulers
+├── sampling/                     # Probability paths, ACE weights, and samplers
+├── postprocessing/               # Point-cloud-to-molecule construction
+├── evaluation/                   # Druglikeness, docking, and summaries
+├── pretrained_models/            # Pinned upstream Git submodules
+└── utils/
 ```
 
-The command-line entrypoints mirror this separation:
+The shared atom state is `[x, y, z, atom_type..., optional_nuclear_charge_feature]`. `src/sampling/moe_layout.py` constructs a canonical union of the experts' atom vocabularies and adapts it back to each expert's native feature order. Generated point clouds are converted through an XYZ block, Open Babel bond-order inference, and a fresh RDKit molecule. Because scaffold topology is not forcibly restored during postprocessing, preservation should be evaluated from the generated molecule topology.
 
-- `ace-infer`: single-condition scaffold-decoration inference
-- `ace-crossdocked-infer`: CrossDocked2020 benchmark inference
-- `ace-evaluate`: per-sample and CrossDocked2020 evaluation
-
-Pretrained model code is kept under `src/pretrained_models/`, while `src/experts/` provides the ACE/MoE-facing adapter layer. The sampler treats generated ligands as point clouds. Because SDE-based sampling only produces atom coordinates and atom features, bond topology is assigned afterward in `src/postprocessing/`.
-
-The current molecule-building flow is:
-
-```text
-xh point-cloud tensor -> XYZ block -> OpenBabel Python API bond-order guess -> fresh RDKit Mol copy
-```
-
-Scaffold topology is not enforced during this postprocessing step. Generated samples are first converted from point clouds into molecules, and fragment preservation should be evaluated afterward from the generated molecule topology.
-
-### Utilities
-
-To inspect a CrossDocked2020 processed sample without running inference, use:
+To inspect processed task 85 and write fragment/ligand topology images without running inference:
 
 ```bash
 uv run python src/utils/peek_crossdocked_sample.py 85
 ```
 
-This prints the stored pocket/scaffold metadata and writes 2D topology PNGs for the fragment and ligand.
+## Reproducibility notes
 
-### MoE Components And Atom Feature Layout
-
-MoE components are configured under `moe.components`, and their exponent rules are configured under `moe.exponents`. Component configs live near each expert pipeline, for example:
-
-- `src/pipelines/edm/components.py`
-- `src/pipelines/geodiff/components.py`
-- `src/pipelines/diffsbdd/components.py`
-
-The shared atom-feature layout is built dynamically from the selected MoE components. `src/sampling/moe_layout.py` forms the union of configured atom vocabularies, chooses a canonical global order, and builds per-component adapters so each expert still receives features in its native training order.
-
-The shared per-atom state has this general structure:
-
-```text
-[x, y, z, atom_type..., optional_nuclear_charge_feature]
-```
-
-Supported EDM components currently include:
-
-- `EDM_QM9_FRAGMENT`, `EDM_QM9_LIGAND`: `H, C, N, O, F` plus the EDM integer nuclear-charge feature.
-- `EDM_GEOM_DRUG_FRAGMENT`, `EDM_GEOM_DRUG_LIGAND`: `H, B, C, N, O, F, Al, Si, P, S, Cl, As, Br, I, Hg, Bi` without the nuclear-charge feature.
-
-Expert representations differ:
-
-- DiffSBDD-CrossDocked uses `C, N, O, S, B, Br, Cl, P, I, F, others`. In the current MoE combination, DiffSBDD owns the heavy-atom decode for `C/N/O/S/B/Br/Cl/P/I/F`; `H` and the nuclear-charge feature are padding for DiffSBDD.
-- EDM-QM9 uses `H, C, N, O, F` plus an integer nuclear-charge feature. EDM-GEOM-Drug uses a larger GEOM-Drug atom vocabulary and no nuclear-charge feature. EDM postprocessing decodes selected EDM-owned categorical channels from latent scale. The EDM integer feature, when present, is the atomic number feature, not RDKit formal charge, and is ignored by molecule construction.
-- GeoDiff uses fragment atom types as fixed auxiliary features for the fragment coordinate path. The nuclear-charge feature is zero-padded there.
-
-## Additional Remarks
-
-Combining DiffSBDD and EDM in the current MoE setup is relatively straightforward because both models apply the same `1/4` scaling to atom features, which makes their sample spaces reasonably aligned. More general expert combinations may require explicit feature-space calibration. The global MoE SDE diffusion scale is also empirical at the moment; use `moe.diffusion_scale` when comparing EDM-only, GeoDiff-only, DiffSBDD-only, and multi-expert runs.
+- The submodule commits are pinned in the parent repository; do not update them for paper reproduction.
+- The setup patches are idempotent but modify the checked-out submodule worktrees locally. This is expected.
+- CUDA kernels, Open Babel bond inference, and docking can introduce small platform-dependent differences.
+- Full benchmark inference and docking are expensive. Confirm one example first, then retain the resolved Hydra config stored with each run.

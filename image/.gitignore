@@ -1,20 +1,5 @@
-# Created by https://www.toptal.com/developers/gitignore/api/python,venv,linux,visualstudiocode
-# Edit at https://www.toptal.com/developers/gitignore?templates=python,venv,linux,visualstudiocode
-
-### Linux ###
-*~
-
-# temporary files which can be created if a process still has a handle open of a deleted file
-.fuse_hidden*
-
-# KDE directory preferences
-.directory
-
-# Linux trash folder which might appear on any partition or disk
-.Trash-*
-
-# .nfs files are created when an open file is removed but is still being accessed
-.nfs*
+# Created by https://www.toptal.com/developers/gitignore/api/python,visualstudiocode
+# Edit at https://www.toptal.com/developers/gitignore?templates=python,visualstudiocode
 
 ### Python ###
 # Byte-compiled / optimized / DLL files
@@ -188,7 +173,6 @@ poetry.toml
 # LSP config files
 pyrightconfig.json
 
-
 ### VisualStudioCode ###
 .vscode/*
 !.vscode/settings.json
@@ -208,19 +192,17 @@ pyrightconfig.json
 .history
 .ionide
 
-# End of https://www.toptal.com/developers/gitignore/api/python,venv,linux,visualstudiocode
+# End of https://www.toptal.com/developers/gitignore/api/python,visualstudiocode
 
-# Each experiment owns a reproducible uv environment and commits its lockfile.
-!2d_synthetic/uv.lock
-!image/uv.lock
-!molecule/uv.lock
+*.lock
+!uv.lock
 
-# Local transfer artifact; publish the extracted image sources instead.
-image/ace_image.zip
-
+figures/
+figures_prev/
+examples/
+output/
+# log outputs of hydra runs
 outputs/
-PretrainedToyModels/*
-ace_demo_runs_*/
-ace_eval_runs_*/
-repo/*
-experiments/*
+
+# Downloaded evaluation checkpoint (the benchmark JSONL remains versioned).
+data/*.pth
