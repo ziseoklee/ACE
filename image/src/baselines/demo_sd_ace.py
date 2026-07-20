@@ -81,6 +81,14 @@ class StableDiffusionACEPipelineWrapper:
     def _upcast_vae(self) -> torch.dtype:
         if self.vae.dtype == torch.float16 and getattr(self.vae.config, "force_upcast", False):
             self.pipe.upcast_vae()
+            upcast_vae = getattr(self.pipe, "upcast_vae", None)
+            if callable(upcast_vae):
+                upcast_vae()
+            else:
+                # StableDiffusionXLPipeline exposes upcast_vae(), while the
+                # SD1.5/2.1 StableDiffusionPipeline does not.  AutoencoderKL
+                # still advertises force_upcast, so handle it directly.
+                self.vae.to(dtype=torch.float32)
         post_quant = getattr(self.vae, "post_quant_conv", None)
         return self.vae.dtype if post_quant is None else post_quant.weight.dtype
 

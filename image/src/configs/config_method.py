@@ -47,8 +47,9 @@ def _sd15_pipeline_kwargs() -> dict[str, Any]:
 
 def _sd21_pipeline_kwargs() -> dict[str, Any]:
     return {
-        "model_path": "stabilityai/stable-diffusion-2-1-base",
+        "model_path": "sd2-community/stable-diffusion-2-1-base",
         "use_safetensors": True,
+        "variant": "fp16",
         "torch_dtype": "float16",
     }
 

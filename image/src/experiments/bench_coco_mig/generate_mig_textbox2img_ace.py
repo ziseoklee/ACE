@@ -93,21 +93,20 @@ def run_mig_benchmark(bench_config: MIGBenchConfig, method_config: BaseMethodCon
     samples_processed = 0
     samples_skipped = 0
 
+    selected_prompts = 0
     for idx, sample in enumerate(tqdm(dataset, desc="COCO-MIG Bench")):
+        level = sample.get("level", "N/A")
+        if level not in bench_config.target_levels and level != "N/A":
+            continue
+        if bench_config.max_samples is not None and selected_prompts >= bench_config.max_samples:
+            break
+        selected_prompts += 1
         for itr, seed in enumerate(bench_config.seed):
             # Extract data from sample
             prompt = sample["prompt"]
             tags = parse_tags(sample)
             phrases = sample.get("phrases", [])
             bounding_boxes = sample.get("bounding_boxes", [])
-            level = sample.get("level", "N/A")
-
-            # pass if level is not in target_levels
-            if level not in bench_config.target_levels and level != "N/A":
-                logger.debug(f"Skipping sample {idx}_{itr} with level {level} not in target levels.")
-                time.sleep(0.01)  # Small sleep to allow logging to flush and pbar to update
-                samples_skipped += 1
-                continue
 
             # Initialize level tracking if not exists
             if level not in latencies:
@@ -170,6 +169,8 @@ def run_mig_benchmark(bench_config: MIGBenchConfig, method_config: BaseMethodCon
             except Exception as e:
                 logger.error(f"Error generating image for sample {idx}, iteration {itr}: {e}")
                 err_cnt += 1
+                if bench_config.fail_fast:
+                    raise
                 continue
 
     logger.info("✅ MIG Benchmark completed:")
@@ -337,6 +338,8 @@ def write_log_file(
         f.write(f"Generate kwargs: {method_config.generate_kwargs}\n")
         f.write(f"Dataset: {bench_config.dataset_jsonl_path}\n")
         f.write(f"Target levels: {bench_config.target_levels}\n")
+        f.write(f"Maximum prompts: {bench_config.max_samples}\n")
+        f.write(f"Fail fast: {bench_config.fail_fast}\n")
         if torch.cuda.is_available():
             for i in range(torch.cuda.device_count()):
                 f.write(f"GPU {i}: {torch.cuda.get_device_name(i)}\n")

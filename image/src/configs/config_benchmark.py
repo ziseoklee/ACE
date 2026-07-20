@@ -17,9 +17,13 @@ class MIGBenchConfig:
     output_base_dir: str = "output/COCO-MIG_Bench"
     run_name: str | None = None
     mode: str = "accuracy"
+    max_samples: int | None = None
+    fail_fast: bool = True
     method: BaseMethodConfig = field(default_factory=BaseMethodConfig)
 
     def __post_init__(self) -> None:
+        if self.max_samples is not None and self.max_samples <= 0:
+            raise ValueError("max_samples must be null or a positive integer.")
         if self.mode == "accuracy":
             if not self.seed:
                 self.seed = [42, 37, 519, 609, 123, 401, 780, 0]

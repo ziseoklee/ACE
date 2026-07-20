@@ -608,11 +608,21 @@ class MIGBenchEvaluator:
         logger.info("Starting MIG Bench evaluation...")
         logger.info(f"Using device: {self.device}")
         logger.info(
-            f"Evaluation settings - miou_threshold: {self.args.miou_threshold}, num_iters: {self.args.num_iters}"
+            "Evaluation settings - miou_threshold: %s, num_iters: %s, levels: %s",
+            self.args.miou_threshold,
+            self.args.num_iters,
+            self.args.levels,
         )
 
         # Load dataset
-        dataset = self.load_dataset()
+        indexed_dataset = list(enumerate(self.load_dataset()))
+        if self.args.levels is not None:
+            selected_levels = set(self.args.levels)
+            indexed_dataset = [
+                (idx, sample) for idx, sample in indexed_dataset if sample["level"] in selected_levels
+            ]
+        if self.args.max_samples is not None:
+            indexed_dataset = indexed_dataset[: self.args.max_samples]
 
         # Get list of image files
         if not os.path.exists(self.args.image_dir) or len(os.listdir(self.args.image_dir)) == 0:
@@ -622,10 +632,10 @@ class MIGBenchEvaluator:
         image_files = os.listdir(self.args.image_dir)
 
         # Process each sample
-        for idx, sample in enumerate(tqdm(dataset, desc="Evaluating images")):
+        for idx, sample in tqdm(indexed_dataset, desc="Evaluating images"):
             if idx % 20 == 0:  # Log every 20th sample to track progress
                 logger.debug(
-                    f"Processing sample {idx}/{len(dataset)}: level={sample['level']}, prompt='{sample['prompt'][:50]}...'"
+                    f"Processing sample {idx}: level={sample['level']}, prompt='{sample['prompt'][:50]}...'"
                 )
             for itr in range(self.args.num_iters):
                 image_path_list = self.find_image_path(idx, itr, sample["level"], sample["prompt"], image_files)
@@ -692,6 +702,20 @@ def main():
         help="Path to benchmark JSONL file",
     )
     parser.add_argument("--num_iters", type=int, default=8, help="Number of iterations per prompt")
+    parser.add_argument(
+        "--levels",
+        type=int,
+        nargs="+",
+        choices=range(5),
+        default=None,
+        help="Evaluate only these benchmark levels while preserving original sample indices.",
+    )
+    parser.add_argument(
+        "--max_samples",
+        type=int,
+        default=None,
+        help="Evaluate only the first N benchmark prompts (for smoke tests).",
+    )
     parser.add_argument(
         "--log_level", choices=["debug", "info", "warning", "error"], default="info", help="Logging level"
     )

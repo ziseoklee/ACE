@@ -24,7 +24,9 @@ model_dict = {
         "torch_dtype": torch.float32,
     },
     "SD1.5": {
-        "pretrained_model_or_path": "runwayml/stable-diffusion-v1-5",
+        "pretrained_model_or_path": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+        "use_safetensors": True,
+        "variant": "fp16",
         "torch_dtype": torch.float16,
     },
     "SD2.0": {
@@ -33,8 +35,9 @@ model_dict = {
         "torch_dtype": torch.float16,
     },
     "SD2.1": {  # CVPR'22 (Oral) & https://arxiv.org/abs/2112.10752
-        "pretrained_model_or_path": "stabilityai/stable-diffusion-2-1-base",
-        "use_auth_token": True,
+        "pretrained_model_or_path": "sd2-community/stable-diffusion-2-1-base",
+        "use_safetensors": True,
+        "variant": "fp16",
         "torch_dtype": torch.float16,
     },
     "SD2.1+TokenCompose": {  # CVPR'24 / https://huggingface.co/mlpc-lab/TokenCompose_SD14_A
