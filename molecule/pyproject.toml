@@ -24,6 +24,12 @@ ace-crossdocked-infer = "run_crossdocked_inference:main"
 ace-evaluate = "evaluation.cli:main"
 
 [dependency-groups]
+backend = ["ace-web-backend"]
+test = [
+    "httpx>=0.28,<1",
+    "pytest>=8,<10",
+    "ruff>=0.11,<1",
+]
 experts = [
     "diffsbdd",
     "e3-diffusion-for-molecules",
@@ -44,6 +50,7 @@ find-links = [
 ]
 
 [tool.uv.sources]
+ace-web-backend = { path = "backend", editable = true }
 diffsbdd = { path = "src/pretrained_models/DiffSBDD", editable = false }
 "e3-diffusion-for-molecules" = { path = "src/pretrained_models/e3_diffusion_for_molecules", editable = false }
 geodiff = { path = "src/pretrained_models/GeoDiff", editable = false }
@@ -80,8 +87,12 @@ namespaces = true
 [tool.setuptools.package-data]
 configs = ["*.yaml"]
 
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+
 
 [tool.ruff]
+src = ["src", "backend/src"]
 # Exclude a variety of commonly ignored directories.
 exclude = [
     ".bzr",
