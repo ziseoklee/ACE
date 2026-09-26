@@ -1,7 +1,7 @@
 # ACE scaffold decoration web demo — API contract v1
 
 - Created: 2026-09-25
-- Status: **Capabilities, inference submission/execution, job status/results, and artifact endpoints are implemented. Evaluation submission remains a design specification for subsequent implementation.**
+- Status: **Capabilities, inference and evaluation submission/execution, job status/results, and artifact endpoints are implemented.**
 - Scope: Contracts for inputs, jobs, results, evaluation, and files between the FastAPI backend and the Svelte + TypeScript frontend
 - API prefix: `/api/v1`
 
@@ -516,11 +516,12 @@ Example MetricGroups:
 }
 ```
 
-**Differences from the current code:** `evaluate_druglikeness` replaces calculation failures with 0,
-and `evaluate_docking` returns an affinity of 0 on failure. The returned numbers alone cannot distinguish a failure from an actual zero.
-The subsequent evaluation API implementation must introduce a computation boundary that preserves failure causes.
-Connect it to structured reports for the API without silently changing the existing CLI's semantics.
-The `scaffold_preservation` metric defined above also requires subsequent implementation; it is not currently connected.
+**CLI compatibility:** `evaluate_druglikeness` retains its zero fallback for calculation failures,
+and `evaluate_docking` retains its zero-affinity failure result. The API uses shared
+SA/Lipinski calculations that propagate errors and the existing QuickVina backend directly,
+then records structured reports that distinguish failures from measured zero values.
+Non-finite computed values are failures. The API implements `scaffold_preservation`
+with the `rdkit_substructure_v1` semantics above.
 
 ## 11. Error contract
 
@@ -624,11 +625,11 @@ Subsequent evaluations produce provenance and results under separate jobs and do
 | Sampling per condition                   | `SamplingCondition`, `sample_condition`, and `write_sampling_result` in [`src/inference/condition_sampling.py`](../src/inference/condition_sampling.py)                            |
 | Reference-based pocket selection         | [`src/experts/diffsbdd_expert.py`](../src/experts/diffsbdd_expert.py), and `get_pocket_from_ligand` in the pinned DiffSBDD version                                                 |
 | Molecule reconstruction                  | [`src/postprocessing/molecule_builder.py`](../src/postprocessing/molecule_builder.py); the API must verify sanitization and serialization results and preserve per-sample failures |
-| Druglikeness evaluation                  | [`src/evaluation/metrics/druglikeness.py`](../src/evaluation/metrics/druglikeness.py); a boundary is needed to distinguish zero fallbacks from calculation failures                |
+| Druglikeness evaluation                  | [`src/evaluation/metrics/druglikeness.py`](../src/evaluation/metrics/druglikeness.py); shared calculations propagate failures to the API while retaining CLI zero fallbacks        |
 | Docking evaluation                       | [`src/evaluation/metrics/docking.py`](../src/evaluation/metrics/docking.py), [`backends/qvina.py`](../src/evaluation/backends/qvina.py)                                            |
 | Example inputs                           | `4m7t`, `3nfb`, and `4yhj` in [`examples/README.md`](../examples/README.md)                                                                                                        |
 
-Contract validation criteria for subsequent implementation:
+Contract validation criteria:
 
 - Connect the full sequence using the three example inputs: submission → `202` → status retrieval → results → SDF reading and download.
 - The UI can evaluate generated samples by sample ID without reuploading the same files. Standalone upload evaluation also works.
@@ -641,4 +642,6 @@ Contract validation criteria for subsequent implementation:
 - Executions are traceable through original inputs, resolved config, seed, and model/environment versions.
 - Record API integration test results using substituted models separately from validation results for actual CUDA inference.
 
-Capabilities, inference submission/execution, job status/results, and file APIs have integration tests. Evaluation submission and the frontend will be implemented in subsequent stages.
+Capabilities, inference/evaluation submission and execution, job status/results, and file APIs have integration tests.
+Evaluation validation includes real RDKit calculations, source snapshots, restart recovery, and a real Open Babel/QuickVina smoke test when those tools are installed.
+The frontend remains a subsequent implementation stage.

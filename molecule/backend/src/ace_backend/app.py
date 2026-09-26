@@ -20,6 +20,8 @@ from starlette.middleware.base import RequestResponseEndpoint
 from ace_backend.capabilities import detect_capabilities
 from ace_backend.dispatcher import Dispatcher
 from ace_backend.errors import APIError
+from ace_backend.evaluation_inputs import EVALUATION_FILE_FIELDS, prepare_evaluation, read_evaluation
+from ace_backend.evaluation_schema import EVALUATION_CONFIG_EXAMPLE, EvaluationConfig, JobResult
 from ace_backend.inputs import prepare_submission, read_submission
 from ace_backend.job_store import JobStore
 from ace_backend.jobs_schema import (
@@ -29,7 +31,6 @@ from ace_backend.jobs_schema import (
     ErrorDetail,
     ErrorResponse,
     InferenceConfig,
-    InferenceResult,
     Job,
     QueuedJob,
 )
@@ -169,6 +170,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers.update({"Location": job.links.self, "Retry-After": "2", "Cache-Control": "no-store"})
         return job
 
+    @app.post(
+        "/api/v1/evaluation/jobs",
+        response_model=QueuedJob,
+        status_code=202,
+        tags=["evaluation"],
+        responses={code: {"model": ErrorResponse} for code in (400, 404, 409, 413, 415, 422, 429, 503, 500)},
+        openapi_extra={
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "multipart/form-data": {
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["config"],
+                            "properties": {
+                                **{field: {"type": "string", "format": "binary"} for field in EVALUATION_FILE_FIELDS},
+                                "config": {
+                                    "type": "string",
+                                    "contentMediaType": "application/json",
+                                    "contentSchema": _evaluation_config_schema(),
+                                    "description": "EvaluationConfig JSON as a regular form field. Inference-job sources forbid files. Upload sources require ligand_sdf, plus fragment_sdf for scaffold preservation and pocket_pdb/reference_ligand_sdf for docking. All config fields are required; docking must be null unless requested.",
+                                    "example": json.dumps(EVALUATION_CONFIG_EXAMPLE),
+                                },
+                            },
+                        }
+                    }
+                },
+            }
+        },
+    )
+    async def submit_evaluation(request: Request, response: Response) -> QueuedJob:
+        """Preserve evaluation inputs and queue CPU metrics/docking independently of inference availability."""
+        submission = await read_evaluation(request, settings.limits)
+        readiness = cast(Capabilities, request.state.capabilities)
+        if any(not getattr(readiness.evaluation, metric).available for metric in submission.config.metrics):
+            raise APIError(
+                503, Error(code="evaluation_unavailable", message="A requested evaluation prerequisite is unavailable.")
+            )
+        store = cast(JobStore, request.state.jobs)
+        prepared = await run_in_threadpool(prepare_evaluation, submission, settings.limits, store)
+        job = await run_in_threadpool(store.submit_evaluation, prepared)
+        cast(Dispatcher, request.state.dispatcher).wake.set()
+        response.headers.update({"Location": job.links.self, "Retry-After": "2", "Cache-Control": "no-store"})
+        return job
+
     job_errors = {code: {"model": ErrorResponse} for code in (404, 422, 500)}
 
     @app.get("/api/v1/jobs/{job_id}", response_model=Job, tags=["jobs"], responses=job_errors)
@@ -181,11 +228,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get(
         "/api/v1/jobs/{job_id}/result",
-        response_model=InferenceResult,
+        response_model=JobResult,
         tags=["jobs"],
         responses={**job_errors, 409: {"model": ErrorResponse}},
     )
-    def get_result(job_id: str, request: Request, response: Response) -> InferenceResult:
+    def get_result(job_id: str, request: Request, response: Response) -> JobResult:
         response.headers["Cache-Control"] = "no-store"
         return cast(JobStore, request.state.jobs).result(job_id)
 
@@ -215,6 +262,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     return app
+
+
+def _evaluation_config_schema() -> object:
+    schema = EvaluationConfig.model_json_schema()
+    definitions = schema.pop("$defs", {})
+
+    def inline(value: object) -> object:
+        if isinstance(value, dict):
+            if "$ref" in value:
+                return inline(definitions[value["$ref"].rsplit("/", 1)[1]])
+            # The inline oneOf branches retain their literal source.type constraints.
+            return {key: inline(item) for key, item in value.items() if key != "discriminator"}
+        if isinstance(value, list):
+            return [inline(item) for item in value]
+        return value
+
+    return inline(schema)
 
 
 def _error_response(

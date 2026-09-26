@@ -1,4 +1,4 @@
-"""One durable queue consumer; each inference runs in a fresh, terminable process."""
+"""One durable queue consumer; each job runs in a fresh, terminable process."""
 
 import asyncio
 import contextlib
@@ -9,6 +9,7 @@ import signal
 import sys
 from pathlib import Path
 
+from ace_backend.evaluation_schema import EvaluationConfig
 from ace_backend.job_store import JobStore
 from ace_backend.jobs_schema import WORKER_OUTCOME_ADAPTER, Error, InferenceConfig, WorkerFailure
 from ace_backend.settings import Settings
@@ -43,16 +44,23 @@ class Dispatcher:
                     job.job_id, Error(code="job_timeout", message="The job exceeded its execution time limit.")
                 )
             except Exception:
-                logger.exception("Inference worker failed for job %s", job.job_id)
+                logger.exception("Worker failed for job %s", job.job_id)
                 self.store.fail(
                     job.job_id,
-                    Error(code="inference_failed", message="The inference worker could not complete the job."),
+                    Error(code=f"{job.kind}_failed", message="The worker could not complete the job."),
                 )
 
     async def _execute(self, job_id: str) -> None:
         root = self.store.root / job_id
-        config = InferenceConfig.model_validate_json((root / "request.json").read_bytes())
-        environment = {**os.environ, "PYTHONHASHSEED": str(config.seed), "CUBLAS_WORKSPACE_CONFIG": ":4096:8"}
+        job = self.store.get(job_id)
+        raw = (root / "request.json").read_bytes()
+        environment = dict(os.environ)
+        if job.kind == "inference":
+            config = InferenceConfig.model_validate_json(raw)
+            environment.update(PYTHONHASHSEED=str(config.seed), CUBLAS_WORKSPACE_CONFIG=":4096:8")
+        else:
+            evaluation = EvaluationConfig.model_validate_json(raw)
+            environment["PYTHONHASHSEED"] = str(evaluation.docking.seed if evaluation.docking else 0)
         # Keep native-library errors and private paths in an unpublished operator log.
         with (root / "worker.log").open("wb") as log:
             process = await asyncio.create_subprocess_exec(
@@ -76,12 +84,12 @@ class Dispatcher:
                             self.store.phase(job_id, phase)
             finally:
                 if process.returncode is None:
-                    # Kill the process group before another job can claim the GPU.
+                    # Stop model workers and any external docking processes before the next job.
                     with contextlib.suppress(ProcessLookupError):
                         os.killpg(process.pid, signal.SIGKILL)
                 await completion
         if process.returncode != 0:
-            self.store.fail(job_id, Error(code="inference_failed", message="The inference worker exited unexpectedly."))
+            self.store.fail(job_id, Error(code=f"{job.kind}_failed", message="The worker exited unexpectedly."))
             return
         outcome = WORKER_OUTCOME_ADAPTER.validate_json((root / "work/outcome.json").read_bytes())
         if isinstance(outcome, WorkerFailure):
@@ -96,8 +104,8 @@ class Dispatcher:
                     await publication
                     raise
             except Exception:
-                logger.exception("Could not publish inference artifacts for %s", job_id)
+                logger.exception("Could not publish artifacts for %s", job_id)
                 self.store.fail(
                     job_id,
-                    Error(code="artifact_write_failed", message="Required inference results could not be stored."),
+                    Error(code="artifact_write_failed", message="Required results could not be stored."),
                 )

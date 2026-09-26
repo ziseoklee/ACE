@@ -5,11 +5,12 @@ the parent project's environment. Implemented endpoints:
 
 - `GET /api/v1/capabilities`
 - `POST /api/v1/inference/jobs`
+- `POST /api/v1/evaluation/jobs`
 - `GET /api/v1/jobs/{job_id}` and `/result`
 - `GET /api/v1/jobs/{job_id}/artifacts` and `/{artifact_id}`
 - `/openapi.json` and `/docs`
 
-Evaluation submission remains a subsequent implementation step.
+Inference and evaluation share the persistent queue, status, result, and artifact endpoints.
 
 From the `molecule/` project root, after the scientific environment is set up:
 
@@ -106,6 +107,45 @@ Invalid samples keep their original IDs. An all-invalid batch is still a complet
 job with a `no_valid_samples` warning. Progress is `null` because the existing
 sampler does not expose a progress callback.
 
+## Evaluation submission and execution
+
+Use [`examples/evaluation-config.json`](../examples/evaluation-config.json) to evaluate
+an uploaded ligand with druglikeness, scaffold preservation, and QuickVina redocking:
+
+```bash
+curl --fail-with-body http://localhost:8000/api/v1/evaluation/jobs \
+  -F 'ligand_sdf=@examples/4m7t_ligand.sdf' \
+  -F 'fragment_sdf=@examples/4m7t_fragment.sdf' \
+  -F 'pocket_pdb=@examples/4m7t_pocket.pdb' \
+  -F 'reference_ligand_sdf=@examples/4m7t_ligand.sdf' \
+  -F 'config=<examples/evaluation-config.json'
+```
+
+For druglikeness alone, use `metrics: ["druglikeness"]` and `docking: null`, and
+upload only `ligand_sdf`. Druglikeness and topology accept 2D ligands; docking
+requires finite 3D ligand/reference coordinates. CPU evaluations do not require
+inference models or CUDA. Every requested metric must be available at submission.
+
+To evaluate generated samples, set `source` to
+`{"type":"inference_job","job_id":"<completed-inference-job-id>","sample_ids":[0]}`
+and send only the `config` form field. Every selected sample must be `available`.
+The evaluation job copies the source inputs, selected SDFs, settings, and provenance
+before returning `202`, so later removal of the source job does not affect it.
+
+Follow `links.self`, `links.result`, and `links.artifacts` as for inference.
+Results have `kind: "evaluation"`, ascending sample IDs, and only the requested
+metric groups. Each metric reports `succeeded` with a value, `failed` with an error,
+or `skipped` for an unsanitizable ligand. A measured zero is a successful value.
+Individual failures preserve other metrics; job timeouts and result-storage
+failures fail the whole job. A succeeded evaluation may therefore contain failed
+or skipped metrics.
+
+Original files remain unchanged. Normalized input copies, result JSON, resolved
+settings, and provenance are automatically stored and downloadable. Docking
+records its explicit seed, actual box, Open Babel pH 7.4 preparation, tool versions,
+and QuickVina executable hash. The original ligand coordinates are preserved;
+the score is obtained by redocking, and v1 does not publish docked poses.
+
 ## Validation
 
 Run the integration and configuration tests:
@@ -121,6 +161,13 @@ subprocess execution, status/results/downloads, hashes and coordinates, as well 
 invalid inputs, queue saturation, storage errors, crashes, timeouts, and restart
 recovery. A separate test compares the v1 preset against the existing inference
 configuration. These tests do not establish actual model quality or CUDA behavior.
+
+Evaluation tests run real RDKit metrics and worker subprocesses, verify source
+snapshots after source-job removal and server restart, and cover strict inputs,
+mixed inference/evaluation queue limits, individual metric failures, and worker
+timeouts/crashes. The QuickVina smoke test runs real Open Babel/QuickVina when both
+executables are installed and is skipped otherwise. Docking failure semantics are
+also tested independently of external tools.
 
 Run the opt-in real-model test separately with the intended CUDA device visible:
 

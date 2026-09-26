@@ -224,7 +224,14 @@ def main() -> None:
     if os.getppid() != int(parent_pid):
         return
     logging.basicConfig(level=logging.INFO)
-    run_job(Path(root), device)
+    job_root = Path(root)
+    job = JOB_ADAPTER.validate_json((job_root / "job.json").read_bytes())
+    if job.kind == "evaluation":
+        from ace_backend.evaluation_worker import run_evaluation
+
+        run_evaluation(job_root)
+    else:
+        run_job(job_root, device)
 
 
 if __name__ == "__main__":

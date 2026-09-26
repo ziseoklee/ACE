@@ -31,4 +31,20 @@ curl --fail-with-body http://localhost:8000/api/v1/inference/jobs \
 
 `config=<...` sends the JSON file's contents as a regular form field. To use another condition, change all three molecular input paths together; the same JSON config can be reused.
 
+For standalone evaluation, [`evaluation-config.json`](evaluation-config.json) requests
+druglikeness, scaffold preservation, and QuickVina docking with explicit settings:
+
+```bash
+curl --fail-with-body http://localhost:8000/api/v1/evaluation/jobs \
+  -F 'ligand_sdf=@examples/4m7t_ligand.sdf' \
+  -F 'fragment_sdf=@examples/4m7t_fragment.sdf' \
+  -F 'pocket_pdb=@examples/4m7t_pocket.pdb' \
+  -F 'reference_ligand_sdf=@examples/4m7t_ligand.sdf' \
+  -F 'config=<examples/evaluation-config.json'
+```
+
+For druglikeness only, change `metrics` to `["druglikeness"]`, set `docking` to
+`null`, and send only `ligand_sdf` and `config`. The backend README describes
+evaluation of existing inference samples without uploading files again.
+
 The molecular input files are extracted from the processed CrossDocked2020 examples included under `../data/crossdocked/`. See the parent [`README.md`](../README.md) for setup, paper parameters, output structure, and evaluation commands.

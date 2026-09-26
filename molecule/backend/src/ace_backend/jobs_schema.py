@@ -60,7 +60,7 @@ class JobLinks(FrozenModel):
 
 class JobBase(FrozenModel):
     job_id: str
-    kind: Literal["inference"] = "inference"
+    kind: Literal["inference", "evaluation"] = "inference"
     created_at: str
     updated_at: str
     links: JobLinks
@@ -70,13 +70,13 @@ class QueuedJob(JobBase):
     status: Literal["queued"] = "queued"
 
 
-InferencePhase = Literal["loading_models", "sampling", "postprocessing", "writing_results"]
+JobPhase = Literal["loading_models", "sampling", "postprocessing", "evaluating", "writing_results"]
 
 
 class RunningJob(JobBase):
     status: Literal["running"] = "running"
     started_at: str
-    phase: InferencePhase
+    phase: JobPhase
     # The existing sampler does not expose a progress callback.
     progress: None = None
 

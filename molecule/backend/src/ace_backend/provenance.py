@@ -70,9 +70,9 @@ def _git(root: Path, *arguments: str) -> str:
 
 def code_metadata() -> dict[str, object]:
     # The backend is installed alongside the parent ACE sources, not an independent model distribution.
-    import inference.condition_sampling
+    import evaluation
 
-    root = Path(inference.condition_sampling.__file__).resolve().parents[2]
+    root = Path(evaluation.__file__).resolve().parents[2]
     submodules = _git(root, "submodule", "status", "--recursive", "--", ".")
     repositories = [
         (".", root),

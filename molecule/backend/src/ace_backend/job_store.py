@@ -9,12 +9,15 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
+from typing import Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel
 
 from ace_backend.errors import APIError
-from ace_backend.inputs import FILE_FIELDS, PreparedSubmission
+from ace_backend.evaluation_inputs import PreparedEvaluation
+from ace_backend.evaluation_schema import RESULT_ADAPTER, JobResult
+from ace_backend.inputs import FILE_FIELDS, InputFile, PreparedSubmission
 from ace_backend.jobs_schema import (
     JOB_ADAPTER,
     Artifact,
@@ -110,6 +113,28 @@ class JobStore:
         self._jobs[job.job_id] = job
 
     def submit(self, prepared: PreparedSubmission) -> QueuedJob:
+        inputs = tuple(
+            InputFile(
+                f"{folder}/{upload.field}{FILE_FIELDS[upload.field]}",
+                upload.content,
+                f"input_{folder}",
+                "chemical/x-pdb" if FILE_FIELDS[upload.field] == ".pdb" else "chemical/x-mdl-sdfile",
+            )
+            for folder, uploads in (("original", prepared.submission.uploads), ("prepared", prepared.prepared))
+            for upload in uploads
+        )
+        return self._submit("inference", prepared.submission.config_json, inputs, prepared.preparation)
+
+    def submit_evaluation(self, prepared: PreparedEvaluation) -> QueuedJob:
+        return self._submit("evaluation", prepared.config_json, prepared.files, prepared.preparation)
+
+    def _submit(
+        self,
+        kind: Literal["inference", "evaluation"],
+        config_json: str,
+        inputs: tuple[InputFile, ...],
+        preparation: BaseModel,
+    ) -> QueuedJob:
         with self._lock:
             active = sum(isinstance(job, QueuedJob | RunningJob) for job in self._jobs.values())
             # One slot is reserved for dispatch, including when max_pending_jobs is zero.
@@ -120,6 +145,7 @@ class JobStore:
             url = f"/api/v1/jobs/{job_id}"
             job = QueuedJob(
                 job_id=job_id,
+                kind=kind,
                 created_at=timestamp,
                 updated_at=timestamp,
                 links=JobLinks(self=url, result=f"{url}/result", artifacts=f"{url}/artifacts"),
@@ -128,24 +154,14 @@ class JobStore:
                 root = Path(staging)
                 (root / "work").mkdir()
                 files: list[StoredArtifact] = []
-                for folder, uploads in (("original", prepared.submission.uploads), ("prepared", prepared.prepared)):
-                    (root / folder).mkdir()
-                    for upload in uploads:
-                        extension = FILE_FIELDS[upload.field]
-                        relative = f"{folder}/{upload.field}{extension}"
-                        (root / relative).write_bytes(upload.content)
-                        files.append(
-                            describe_artifact(
-                                job_id,
-                                root,
-                                relative,
-                                f"input_{folder}",
-                                "chemical/x-pdb" if extension == ".pdb" else "chemical/x-mdl-sdfile",
-                            )
-                        )
-                (root / "request.json").write_text(prepared.submission.config_json, encoding="utf-8")
+                for item in inputs:
+                    path = root / item.relative_path
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(item.content)
+                    files.append(describe_artifact(job_id, root, item.relative_path, item.role, item.media_type))
+                (root / "request.json").write_text(config_json, encoding="utf-8")
                 files.append(describe_artifact(job_id, root, "request.json", "request_config", "application/json"))
-                write_json(root / "preparation.json", prepared.preparation)
+                write_json(root / "preparation.json", preparation)
                 write_json(root / "limits.json", self._settings.limits)
                 write_json(root / "manifest.json", Manifest(files=tuple(files)))
                 write_json(root / "job.json", job)
@@ -178,7 +194,7 @@ class JobStore:
                 **job.model_dump(exclude={"status", "updated_at"}),
                 updated_at=timestamp,
                 started_at=timestamp,
-                phase="loading_models",
+                phase="loading_models" if job.kind == "inference" else "evaluating",
             )
             self._save(running)
             return running
@@ -215,15 +231,18 @@ class JobStore:
             if not isinstance(job, RunningJob):
                 raise ValueError("Only a running job can succeed.")
             root = self.root / job_id
-            result = InferenceResult.model_validate_json((root / "work/result.json").read_bytes())
+            result = RESULT_ADAPTER.validate_json((root / "work/result.json").read_bytes())
+            if result.job_id != job_id or result.kind != job.kind:
+                raise ValueError("Result does not belong to this job.")
             published = self.manifest(job_id).files + manifest.files
             references = {file.artifact.artifact_id for file in published}
-            for reference in [
-                *result.inputs.model_dump().values(),
-                *(sample.sdf.model_dump() for sample in result.samples if sample.status == "available"),
-            ]:
-                if reference["artifact_id"] not in references:
-                    raise ValueError("Result refers to an unpublished artifact.")
+            if isinstance(result, InferenceResult):
+                for reference in [
+                    *result.inputs.model_dump().values(),
+                    *(sample.sdf.model_dump() for sample in result.samples if sample.status == "available"),
+                ]:
+                    if reference["artifact_id"] not in references:
+                        raise ValueError("Result refers to an unpublished artifact.")
             for file in published:
                 path = root / file.relative_path
                 with path.open("rb") as stream:
@@ -244,13 +263,13 @@ class JobStore:
         job = self.get(job_id)
         return Manifest.model_validate_json((self.root / job.job_id / "manifest.json").read_bytes())
 
-    def result(self, job_id: str) -> InferenceResult:
+    def result(self, job_id: str) -> JobResult:
         job = self.get(job_id)
         if isinstance(job, FailedJob):
             raise APIError(409, Error(code="job_failed", message="This job failed; no completed result is available."))
         if not isinstance(job, SucceededJob):
             raise APIError(409, Error(code="result_not_ready", message="This job has not completed."))
-        return InferenceResult.model_validate_json((self.root / job.job_id / "work/result.json").read_bytes())
+        return RESULT_ADAPTER.validate_json((self.root / job.job_id / "work/result.json").read_bytes())
 
     def artifact(self, job_id: str, artifact_id: str) -> tuple[Path, Artifact]:
         job = self.get(job_id)

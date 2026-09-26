@@ -1,0 +1,10 @@
+{
+  "source": { "type": "upload" },
+  "metrics": ["druglikeness", "scaffold_preservation", "docking"],
+  "docking": {
+    "seed": 42,
+    "exhaustiveness": 8,
+    "num_modes": 9,
+    "padding_angstrom": 8.0
+  }
+}
