@@ -11,10 +11,10 @@ from typing import TYPE_CHECKING
 from ace_backend.inference_runtime import build_preset
 from ace_backend.job_store import describe_artifact, utc_now, write_json
 from ace_backend.jobs_schema import (
+    INFERENCE_CONFIG_ADAPTER,
     JOB_ADAPTER,
     AvailableSample,
     Error,
-    InferenceConfig,
     InferenceResult,
     InputRefs,
     InvalidSample,
@@ -45,7 +45,7 @@ def run_job(root: Path, device: str) -> None:
         from inference.condition_sampling import SamplingCondition, sample_condition
         from inference.sampling_runtime import load_sampling_runtime
 
-        config = InferenceConfig.model_validate_json((root / "request.json").read_bytes())
+        config = INFERENCE_CONFIG_ADAPTER.validate_json((root / "request.json").read_bytes())
         preparation = Preparation.model_validate_json((root / "preparation.json").read_bytes())
         job = JOB_ADAPTER.validate_json((root / "job.json").read_bytes())
         sampler, moe = build_preset(config, device)

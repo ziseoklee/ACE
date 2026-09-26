@@ -189,6 +189,7 @@ def test_accepts_and_persists_inputs_with_request_headers(client: TestClient, tm
         ("ace.b2", -1),
         ("checkpoint", "/private/model.ckpt"),
         ("ace.unknown", 10),
+        ("moe", {"omega": 1.4, "diffusion_scale": 2.0}),
     ],
 )
 def test_strict_config_rejects_invalid_or_extra_values(
@@ -214,6 +215,53 @@ def test_scientific_fields_are_required(client: TestClient, field: str) -> None:
     else:
         del config[field]
     assert_error(client.post(POST_URL, files=parts(config=config)), 422, "validation_error")
+
+
+@pytest.mark.parametrize("preset", ["nr_scaffold_v1", "fkc_scaffold_v1"])
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("omega", -0.1),
+        ("omega", 10.1),
+        ("omega", True),
+        ("omega", "1.4"),
+        ("omega", float("nan")),
+        ("diffusion_scale", 0),
+        ("diffusion_scale", 10.1),
+        ("diffusion_scale", float("inf")),
+        ("b1", 30.0),
+        ("b2", 0.336),
+    ],
+)
+def test_constant_presets_reject_invalid_and_unused_parameters(
+    client: TestClient, tmp_path: Path, preset: str, field: str, value: object
+) -> None:
+    config = {key: value for key, value in CONFIG_EXAMPLE.items() if key != "ace"}
+    config.update(preset=preset, moe={"omega": 1.4, "diffusion_scale": 2.0, field: value})
+    payload = assert_error(client.post(POST_URL, files=parts(config=config)), 422, "validation_error")
+    assert payload["error"]["details"][0]["field"] == f"config.moe.{field}"
+    assert not list((tmp_path / "jobs").glob("*/job.json"))
+
+
+@pytest.mark.parametrize("preset", ["nr_scaffold_v1", "fkc_scaffold_v1"])
+@pytest.mark.parametrize("field", ["omega", "diffusion_scale"])
+def test_constant_parameters_are_required(client: TestClient, preset: str, field: str) -> None:
+    config = {key: value for key, value in CONFIG_EXAMPLE.items() if key != "ace"}
+    parameters = {"omega": 1.4, "diffusion_scale": 2.0}
+    del parameters[field]
+    config.update(preset=preset, moe=parameters)
+    payload = assert_error(client.post(POST_URL, files=parts(config=config)), 422, "validation_error")
+    assert payload["error"]["details"][0]["field"] == f"config.moe.{field}"
+
+
+@pytest.mark.parametrize("preset", ["nr_scaffold_v1", "fkc_scaffold_v1"])
+def test_constant_presets_forbid_ace_parameters(client: TestClient, preset: str) -> None:
+    config = {**CONFIG_EXAMPLE, "preset": preset}
+    payload = assert_error(client.post(POST_URL, files=parts(config=config)), 422, "validation_error")
+    assert {detail["field"] for detail in payload["error"]["details"]} == {"config.moe", "config.ace"}
+    config["moe"] = {"omega": 1.4, "diffusion_scale": 2.0}
+    payload = assert_error(client.post(POST_URL, files=parts(config=config)), 422, "validation_error")
+    assert payload["error"]["details"][0]["field"] == "config.ace"
 
 
 @pytest.mark.parametrize("field", [*FILES, "config"])
@@ -480,12 +528,28 @@ def test_restart_fails_interrupted_jobs_and_releases_storage(make_client: Callab
 
 
 @pytest.mark.parametrize("example", ["4m7t", "3nfb", "4yhj"])
+@pytest.mark.parametrize(
+    ("filename", "sampler_name", "use_logq", "do_resample"),
+    [
+        ("inference-config-nr.json", "NRSampler", False, False),
+        ("inference-config-fkc.json", "FKCSampler", False, True),
+        ("inference-config.json", "ACESampler", True, True),
+    ],
+)
 def test_submission_to_results_and_downloads(
-    make_client: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch, example: str
+    make_client: Callable[..., TestClient],
+    monkeypatch: pytest.MonkeyPatch,
+    example: str,
+    filename: str,
+    sampler_name: str,
+    use_logq: bool,
+    do_resample: bool,
 ) -> None:
+    config = json.loads((ROOT / "examples" / filename).read_text())
+    config["num_samples"] = 2
     worker_mode(monkeypatch, "success")
     with make_client() as client:
-        submitted = client.post(POST_URL, files=parts(example))
+        submitted = client.post(POST_URL, files=parts(example, config=config))
         assert submitted.status_code == 202, submitted.text
         job = submitted.json()
         final = wait_status(client, job["links"]["self"], {"succeeded", "failed"})
@@ -525,12 +589,28 @@ def test_submission_to_results_and_downloads(
             next(artifact["url"] for artifact in manifest if artifact["role"] == "resolved_config")
         ).json()
         assert resolved["data"]["num_ligand_atoms"] == result["resolved_num_ligand_atoms"]
-        assert resolved["sampler"]["seed"] == CONFIG_EXAMPLE["seed"]
+        assert resolved["preset"] == config["preset"]
+        assert resolved["sampler"]["seed"] == config["seed"]
+        assert resolved["sampler"]["name"] == sampler_name
+        assert resolved["sampler"]["use_logq"] is use_logq
+        assert resolved["sampler"]["do_resample"] is do_resample
+        weights = resolved["moe"]["exponents"]
+        assert [entry["weight_fn"]["name"] for entry in weights.values()] == [
+            "ConstantWeight",
+            "ConstantWeight",
+            "ConstantWeight",
+            "ACEBumpWeight" if sampler_name == "ACESampler" else "ConstantWeight",
+        ]
+        if sampler_name != "ACESampler":
+            assert all(set(entry["weight_fn"]) == {"name", "omega"} for entry in weights.values())
         provenance = client.get(
             next(artifact["url"] for artifact in manifest if artifact["role"] == "provenance")
         ).json()
         assert provenance["code"]["repositories"][0]["commit"]
         assert provenance["environment"]["validation"] == "substituted models; no CUDA inference"
+        assert provenance["request"] == config
+        request_artifact = next(artifact for artifact in manifest if artifact["role"] == "request_config")
+        assert client.get(request_artifact["url"]).json() == config
         assert_error(
             client.get(f"/api/v1/jobs/{uuid4()}/artifacts/{result['samples'][0]['sdf']['artifact_id']}"),
             404,
@@ -620,7 +700,26 @@ def test_openapi_describes_config_and_cors_supports_submission(
         config = schema["properties"]["config"]
         assert config["type"] == "string"
         assert json.loads(config["example"]) == CONFIG_EXAMPLE
-        assert config["contentSchema"]["properties"]["ace"]["additionalProperties"] is False
+        branches = config["contentSchema"]["oneOf"]
+        by_preset = {branch["properties"]["preset"]["const"]: branch for branch in branches}
+        assert set(by_preset) == {"nr_scaffold_v1", "fkc_scaffold_v1", "ace_scaffold_v1"}
+        for preset, branch in by_preset.items():
+            parameter_key = "ace" if preset == "ace_scaffold_v1" else "moe"
+            assert set(branch["required"]) == {
+                "preset",
+                "num_samples",
+                "seed",
+                "num_sampling_steps",
+                "num_ligand_atoms",
+                parameter_key,
+            }
+            assert branch["additionalProperties"] is False
+            parameters = branch["properties"][parameter_key]
+            assert parameters["additionalProperties"] is False
+            assert set(parameters["required"]) == (
+                {"omega", "diffusion_scale", "b1", "b2"} if parameter_key == "ace" else {"omega", "diffusion_scale"}
+            )
+        assert "$ref" not in json.dumps(config["contentSchema"])
         response = client.options(
             POST_URL,
             headers={

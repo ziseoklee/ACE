@@ -14,7 +14,15 @@ from starlette.datastructures import FormData, UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 
 from ace_backend.errors import APIError, invalid_input
-from ace_backend.jobs_schema import Error, ErrorDetail, InferenceConfig, PocketSelection, Preparation, ResidueId
+from ace_backend.jobs_schema import (
+    INFERENCE_CONFIG_ADAPTER,
+    Error,
+    ErrorDetail,
+    InferenceConfig,
+    PocketSelection,
+    Preparation,
+    ResidueId,
+)
 from ace_backend.molecule_io import serialize_sdf
 from ace_backend.schemas import OperationalLimits
 
@@ -208,18 +216,23 @@ def parse_config(raw: str, limits: OperationalLimits) -> InferenceConfig:
     except (ValueError, RecursionError) as error:
         raise invalid_input("config", "invalid_json", "Config must contain valid JSON.", 400) from error
     try:
-        config = InferenceConfig.model_validate(value)
+        config = INFERENCE_CONFIG_ADAPTER.validate_python(value)
     except ValidationError as error:
-        details = tuple(
-            ErrorDetail(
-                field=".".join(("config", *(str(part) for part in entry["loc"]))),
-                code=entry["type"],
-                message=entry["msg"],
+        details: list[ErrorDetail] = []
+        for entry in error.errors(include_input=False, include_context=False, include_url=False):
+            # Union branch tags are schema metadata, not fields in the request.
+            location = entry["loc"][1:]
+            if entry["type"] in {"union_tag_invalid", "union_tag_not_found"}:
+                location = ("preset",)
+            details.append(
+                ErrorDetail(
+                    field=".".join(("config", *(str(part) for part in location))),
+                    code=entry["type"],
+                    message=entry["msg"],
+                )
             )
-            for entry in error.errors(include_input=False, include_context=False, include_url=False)
-        )
         raise APIError(
-            422, Error(code="validation_error", message="Invalid inference config.", details=details)
+            422, Error(code="validation_error", message="Invalid inference config.", details=tuple(details))
         ) from error
     for field, limit in (
         ("num_samples", limits.max_num_samples),

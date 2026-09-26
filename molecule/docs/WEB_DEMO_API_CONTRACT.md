@@ -79,7 +79,7 @@ The example below represents a response when all inference and evaluation prereq
     "scaffold_preservation": { "available": true, "reason": null },
     "docking": { "available": true, "reason": null }
   },
-  "inference_presets": ["ace_scaffold_v1"],
+  "inference_presets": ["nr_scaffold_v1", "fkc_scaffold_v1", "ace_scaffold_v1"],
   "limits": {
     "max_file_bytes": 10485760,
     "max_request_bytes": 33554432,
@@ -125,7 +125,7 @@ See [`backend/README.md`](../backend/README.md) for execution, configuration, an
 
 Store the original uploads separately from the normalized inputs actually used. All three structures must use Å units and the same protein coordinate frame.
 The server does not automatically align uploads, generate conformers, or reconstruct missing atoms.
-The fragment's initial position is used for visualization, but ACE performs flexible-pose decoration and does not fix the pose during generation.
+The fragment's initial position is used for visualization. All three presets perform flexible-pose decoration and do not fix the pose during generation.
 
 Input processing rules:
 
@@ -138,7 +138,7 @@ Input processing rules:
    preserving the order, coordinates, isotopes, and formal charges of retained atoms. Record this processing step and the RDKit version.
 5. `num_ligand_atoms` is the reference molecule's `GetNumAtoms()` after this processing, or an explicitly specified model node count.
    It equals the heavy-atom count for typical heavy-atom inputs, but is not defined unconditionally as a heavy-atom count.
-6. The GeoDiff-QM9 fragment vocabulary for `ace_scaffold_v1` is `H, C, N, O, F`.
+6. The GeoDiff-QM9 fragment vocabulary for all three scaffold presets is `H, C, N, O, F`.
    Reject a normalized fragment containing other elements or dummy/query atoms with `unsupported_fragment_atom`.
 7. If `num_ligand_atoms=null`, use the normalized reference atom count.
    Both explicit and automatic values must be at least the fragment atom count and no greater than the actual server limit.
@@ -172,36 +172,54 @@ Do not reject an otherwise valid file solely because the browser supplies an emp
 
 `POST /inference/jobs`
 
-Every field in `config` is required and must satisfy the ranges below. Only `num_ligand_atoms` permits `null`.
+Every field for the selected preset is required and must satisfy the ranges below. Only `num_ligand_atoms` permits `null`.
 The request must explicitly include the UI's initial values. The server does not arbitrarily fill in omitted scientific settings.
+
+Select one of the following presets. All three use the same four pretrained experts and molecular input requirements.
+The existing `ace_scaffold_v1` request format and scientific configuration remain unchanged.
+
+| Preset | Sampler | Weights | Parameter object | `use_logq` | `do_resample` |
+| ------ | ------- | ------- | ---------------- | ---------- | ------------- |
+| `nr_scaffold_v1` | `NRSampler` | Constant for all four experts | `moe` | false | false |
+| `fkc_scaffold_v1` | `FKCSampler` | Constant for all four experts | `moe` | false | true |
+| `ace_scaffold_v1` | `ACESampler` | Constant for the first three experts; ACEBump for DiffSBDD | `ace` | true | true |
 
 | Field                 | Type and range                    | Initial UI value  | Existing code mapping                         |
 | --------------------- | --------------------------------- | ----------------- | --------------------------------------------- |
-| `preset`              | literal `ace_scaffold_v1`         | `ace_scaffold_v1` | Four-expert configuration in `inference.yaml` |
+| `preset`              | One of the three IDs above       | `ace_scaffold_v1` | Sampler and weight configuration             |
 | `num_samples`         | integer, 1..server limit          | 5                 | `sampler.batch_size`                          |
 | `seed`                | integer, 0..4294967295            | 42                | `sampler.seed`                                |
 | `num_sampling_steps`  | integer, 10..server limit         | 500               | `sampler.num_sampling_steps`                  |
 | `num_ligand_atoms`    | integer, 1..server limit, or null | null              | `data.num_ligand_atoms`                       |
-| `ace.omega`           | finite number, 0..10              | 1.4               | `moe.omega`                                   |
-| `ace.diffusion_scale` | finite number, 0 < x ≤ 10         | 2.0               | `moe.diffusion_scale`                         |
-| `ace.b1`              | finite number, 0..100             | 30                | `moe.exponents.diffsbdd.weight_fn.B1`         |
-| `ace.b2`              | finite number, 0..10              | 0.336             | `moe.exponents.diffsbdd.weight_fn.B2`         |
 
-The upper limits and ACE parameter ranges define the demo's supported range. Reject out-of-range values rather than silently adjusting them.
-`num_samples` is the **particle batch size of a single ACE run**, not the number of independent runs.
-ACE resampling can introduce dependencies and duplicates among samples. Changing the batch size affects results even with the same seed.
+NR and FKC require `moe` with exactly `omega` and `diffusion_scale`. ACE requires `ace` with all four fields below.
+The other parameter object and all unknown fields are forbidden. In particular, supplying `b1` or `b2` for NR/FKC returns `422`; unused scientific settings are never silently ignored.
+
+| Parameter | Type and range | Initial UI value | Existing code mapping |
+| --------- | -------------- | ---------------- | --------------------- |
+| `moe.omega` or `ace.omega` | finite number, 0..10 | 1.4 | `moe.omega` |
+| `moe.diffusion_scale` or `ace.diffusion_scale` | finite number, 0 < x ≤ 10 | 2.0 | `moe.diffusion_scale` |
+| `ace.b1` (ACE only) | finite number, 0..100 | 30 | `moe.exponents.diffsbdd.weight_fn.B1` |
+| `ace.b2` (ACE only) | finite number, 0..10 | 0.336 | `moe.exponents.diffsbdd.weight_fn.B2` |
+
+The upper limits and parameter ranges define the demo's supported range. Reject out-of-range values rather than silently adjusting them.
+`num_samples` is the **particle batch size of a single sampling run**, not the number of independent runs.
+FKC and ACE resampling can introduce dependencies and duplicates among samples. NR does not resample.
+Changing the preset or batch size affects results even with the same seed.
 `diffusion_scale=2.0` is an empirical value used for the current four-expert configuration.
 
-`ace_scaffold_v1` fixes the following internal settings and records them in the full resolved config at execution time.
+All three presets fix the following internal settings and record them in the full resolved config at execution time.
 
-- sampler: `ACESampler`; global scheduler: `GEODIFF`.
+- Sampler and flags: as listed in the preset table; global scheduler: `GEODIFF`.
 - components: `EDM_GEOM_DRUG_FRAGMENT`, `EDM_GEOM_DRUG_LIGAND`, `GEODIFF_QM9_FRAGMENT`, `DIFFSBDD_CROSSDOCKED_FULLATOM_COND`.
-- exponents, in the same order: `-omega`, `1-omega`, `omega`, `omega + b1*t*(1-t) + b2*t`.
-- `use_logq=true`, `do_resample=true`, `dlogq_calc_interval=10`, `dlogq_noise_scale=3.16227766017`,
-  `resampling_step_interval=10`, `ode_start_t=0.98`.
-- The server selects and records the `device` and checkpoints. Future changes to internal defaults must not implicitly change this preset.
+- NR/FKC exponents, in the same order: `-omega`, `1-omega`, `omega`, `omega`.
+  Constant weights preserve these signs and offsets; the four exponents are not all equal to `omega`.
+- ACE exponents: `-omega`, `1-omega`, `omega`, `omega + b1*t*(1-t) + b2*t`.
+- `dlogq_calc_interval=10`, `dlogq_noise_scale=3.16227766017`, `resampling_step_interval=10`, `ode_start_t=0.98`.
+  Log-density correction is used only by ACE; resampling is used only by FKC and ACE.
+- The server selects and records the `device` and checkpoints. Future changes to internal defaults must not implicitly change these presets.
 
-Example `InferenceConfig`:
+Example ACE `InferenceConfig`:
 
 ```json
 {
@@ -219,7 +237,27 @@ Example `InferenceConfig`:
 }
 ```
 
-This config is provided in [`examples/inference-config.json`](../examples/inference-config.json). Submit a request from the project root as follows.
+For NR, use the following config. Changing only `preset` to `fkc_scaffold_v1` selects FKC:
+
+```json
+{
+  "preset": "nr_scaffold_v1",
+  "num_samples": 2,
+  "seed": 42,
+  "num_sampling_steps": 500,
+  "num_ligand_atoms": null,
+  "moe": {
+    "omega": 1.4,
+    "diffusion_scale": 2.0
+  }
+}
+```
+
+Ready-to-submit configs with ten particles are provided for [ACE](../examples/inference-config.json),
+[NR](../examples/inference-config-nr.json), and [FKC](../examples/inference-config-fkc.json).
+Choose the config file in the `config` form field; submission, job status, results, evaluation, and artifact endpoints are shared.
+The selected preset, full sampler and weight settings, and original request are persisted in the reproducibility artifacts.
+Submit a request from the project root as follows.
 The command below submits a job to the running backend server.
 
 ```bash
@@ -368,7 +406,7 @@ Example Sample array:
 
 The `summary` for the example above is `{requested: 2, available: 1, invalid: 1}`.
 Even if every sample is invalid, the job is `succeeded` if sampling, postprocessing, and result storage completed normally,
-and a `no_valid_samples` warning is returned. Generated SDF files preserve the final ACE coordinates without arbitrary alignment or redocking.
+and a `no_valid_samples` warning is returned. Generated SDF files preserve the final sampled coordinates without arbitrary alignment or redocking.
 Verifying that coordinates have been restored to the input pocket's coordinate frame is a required part of integration validation with actual inference.
 
 ## 9. Submitting evaluation jobs

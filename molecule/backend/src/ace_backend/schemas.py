@@ -66,5 +66,9 @@ class Capabilities(BaseModel):
     api_version: Literal["1.0.0"] = "1.0.0"
     inference: FeatureAvailability
     evaluation: EvaluationCapabilities
-    inference_presets: tuple[Literal["ace_scaffold_v1"], ...] = ("ace_scaffold_v1",)
+    inference_presets: tuple[Literal["nr_scaffold_v1", "fkc_scaffold_v1", "ace_scaffold_v1"], ...] = (
+        "nr_scaffold_v1",
+        "fkc_scaffold_v1",
+        "ace_scaffold_v1",
+    )
     limits: OperationalLimits

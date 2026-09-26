@@ -1,6 +1,5 @@
 """Opt-in real-model integration. Run separately from the substituted-model suite."""
 
-import copy
 import hashlib
 import io
 import json
@@ -15,7 +14,6 @@ from fastapi.testclient import TestClient
 from rdkit import Chem
 
 from ace_backend.app import create_app
-from ace_backend.jobs_schema import CONFIG_EXAMPLE
 from ace_backend.molecule_io import serialize_sdf
 from ace_backend.schemas import OperationalLimits
 from ace_backend.settings import Settings
@@ -28,7 +26,8 @@ pytestmark = [
 ]
 
 
-def test_real_inference_preserves_the_uploaded_coordinate_frame() -> None:
+@pytest.mark.parametrize("filename", ["inference-config-nr.json", "inference-config-fkc.json", "inference-config.json"])
+def test_real_inference_preserves_the_uploaded_coordinate_frame(filename: str) -> None:
     root = Path(__file__).resolve().parents[2]
     offset = np.array([100.0, -70.0, 150.0])
     pocket = PDBParser(QUIET=True).get_structure("pocket", str(root / "examples/4m7t_pocket.pdb"))
@@ -48,7 +47,7 @@ def test_real_inference_preserves_the_uploaded_coordinate_frame() -> None:
         if name == "ligand":
             reference_center = conformer.GetPositions().mean(axis=0)
         form.append((field, (f"{name}.sdf", serialize_sdf(molecule), "chemical/x-mdl-sdfile")))
-    config = copy.deepcopy(CONFIG_EXAMPLE)
+    config = json.loads((root / "examples" / filename).read_text())
     config.update(num_samples=1, num_sampling_steps=100)
     form.append(("config", (None, json.dumps(config), "application/json")))
     settings = Settings(device=os.environ["ACE_TEST_CUDA_DEVICE"], limits=OperationalLimits(job_timeout_seconds=300))
@@ -87,3 +86,4 @@ def test_real_inference_preserves_the_uploaded_coordinate_frame() -> None:
         ).json()
         assert len(provenance["checkpoints"]) == 5
         assert provenance["environment"]["sampler_device"] == settings.device
+        assert provenance["request"] == config

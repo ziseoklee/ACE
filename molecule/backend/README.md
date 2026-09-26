@@ -74,6 +74,21 @@ curl --fail-with-body http://localhost:8000/api/v1/inference/jobs \
 field, so `config` contains JSON text rather than a file upload. Every scientific
 config field must be supplied. Unknown and duplicate fields are rejected.
 
+Select the sampling method through `config.preset`:
+
+| Preset | Sampler and weights | Example config |
+| ------ | ------------------- | -------------- |
+| `nr_scaffold_v1` | NR with Constant weights for all experts; no resampling | [`inference-config-nr.json`](../examples/inference-config-nr.json) |
+| `fkc_scaffold_v1` | FKC with Constant weights for all experts; resampling enabled | [`inference-config-fkc.json`](../examples/inference-config-fkc.json) |
+| `ace_scaffold_v1` | ACE with Constant weights for three experts and ACEBump for DiffSBDD | [`inference-config.json`](../examples/inference-config.json) |
+
+NR/FKC require `moe: {"omega": 1.4, "diffusion_scale": 2.0}`. ACE keeps the existing
+`ace` object with `omega`, `diffusion_scale`, `b1`, and `b2`. All selected parameters
+are required; NR/FKC reject ACE parameters. Replace the config file in the command
+above to choose a method. The three methods share model assets, CUDA requirements,
+queue limits, and result/evaluation endpoints. Resolved configs and provenance
+record the selected method and complete scientific settings.
+
 The server parses and sanitizes inputs, applies the default RDKit `RemoveHs`
 policy, validates atom and byte limits, and checks the existing DiffSBDD pocket
 selection before acceptance. Original uploads and prepared inputs are stored
@@ -87,7 +102,8 @@ Input artifacts are already downloadable while the job is queued or running.
 
 The Linux deployment uses one API serving process per storage directory, enforced
 by an exclusive file lock. A background dispatcher executes one job at a time,
-loading the existing four-expert ACE runtime in a fresh subprocess for each job.
+loading the existing four-expert runtime with the selected sampler in a fresh
+subprocess for each job.
 The model process is independent of the submitting HTTP connection. Timeouts and
 shutdown terminate the process group before another job can execute; a worker
 also terminates if its parent API process dies. Do not use multiple Uvicorn workers
@@ -156,11 +172,12 @@ uv run --frozen --group backend --group test ruff check backend
 ```
 
 The default suite hides physical GPUs and substitutes model execution. It tests
-all three example inputs through real multipart parsing, scientific preparation,
-subprocess execution, status/results/downloads, hashes and coordinates, as well as
+all three presets and example inputs through real multipart parsing, scientific
+preparation, subprocess execution, status/results/downloads, hashes and coordinates, as well as
 invalid inputs, queue saturation, storage errors, crashes, timeouts, and restart
-recovery. A separate test compares the v1 preset against the existing inference
-configuration. These tests do not establish actual model quality or CUDA behavior.
+recovery. Separate tests compare the ACE preset against the existing inference
+configuration and check all presets' exponent functions and explicit settings.
+These tests do not establish actual model quality or CUDA behavior.
 
 Evaluation tests run real RDKit metrics and worker subprocesses, verify source
 snapshots after source-job removal and server restart, and cover strict inputs,
@@ -175,9 +192,14 @@ Run the opt-in real-model test separately with the intended CUDA device visible:
 ACE_TEST_CUDA_DEVICE=cuda:0 uv run --frozen --group backend --group test pytest backend/tests/test_inference_cuda.py -q
 ```
 
-This test uses real checkpoints and CUDA, one particle and 100 sampling steps,
-with a five-minute execution timeout. It translates the example inputs together
-to verify that generated coordinates return to the uploaded pocket's coordinate
+This test runs each of NR, FKC, and ACE with real checkpoints and CUDA, one particle
+and 100 sampling steps, with a five-minute execution timeout per job. It translates
+the example inputs together to verify that generated coordinates return to the uploaded pocket's coordinate
 frame, and checks result/artifact retrieval. It is an integration smoke test,
 not an evaluation of generated ligand quality. It is skipped unless explicitly
 enabled with `ACE_TEST_CUDA_DEVICE`.
+
+## Planned work
+
+- Run inference and evaluation in containers while preserving the API contract,
+  persisted job lifecycle, artifacts, and reproducibility metadata.

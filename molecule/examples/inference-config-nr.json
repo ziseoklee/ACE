@@ -1,0 +1,11 @@
+{
+  "preset": "nr_scaffold_v1",
+  "num_samples": 10,
+  "seed": 42,
+  "num_sampling_steps": 500,
+  "num_ligand_atoms": null,
+  "moe": {
+    "omega": 1.4,
+    "diffusion_scale": 2.0
+  }
+}

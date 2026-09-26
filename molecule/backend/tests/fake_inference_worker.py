@@ -13,7 +13,7 @@ from rdkit import Chem
 import ace_backend.worker as worker
 import inference.condition_sampling as sampling
 import inference.sampling_runtime as runtime
-from configs.config_sampler import ACESamplerConfig
+from configs.config_sampler import _BaseSamplerConfig
 
 root, device, mode = sys.argv[1:]
 
@@ -25,7 +25,7 @@ def fake_load(**kwargs: object) -> object:
 
 
 def fake_sample(
-    condition: sampling.SamplingCondition, loaded: object, sampler: ACESamplerConfig, save_dir: Path
+    condition: sampling.SamplingCondition, loaded: object, sampler: _BaseSamplerConfig, save_dir: Path
 ) -> sampling.SamplingResult:
     if mode == "sampling_failure":
         raise RuntimeError("private /server/sampling/details")

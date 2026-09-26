@@ -31,6 +31,19 @@ curl --fail-with-body http://localhost:8000/api/v1/inference/jobs \
 
 `config=<...` sends the JSON file's contents as a regular form field. To use another condition, change all three molecular input paths together; the same JSON config can be reused.
 
+Three sampling presets are available with the same ten-particle, 500-step, seed-42 settings:
+
+| Method | Config file | Weights |
+| ------ | ----------- | ------- |
+| NR | [`inference-config-nr.json`](inference-config-nr.json) | Constant for all four experts; no resampling |
+| FKC | [`inference-config-fkc.json`](inference-config-fkc.json) | Constant for all four experts; resampling enabled |
+| ACE | [`inference-config.json`](inference-config.json) | Constant for the first three experts and ACEBump for DiffSBDD |
+
+For example, replace the last form argument with `-F 'config=<examples/inference-config-fkc.json'`
+to run FKC. NR/FKC use `moe.omega` and `moe.diffusion_scale`; ACE uses the existing
+`ace` object including `b1` and `b2`. Parameters belonging to another preset are rejected.
+All methods use the same submission, polling, result, artifact, and evaluation APIs.
+
 For standalone evaluation, [`evaluation-config.json`](evaluation-config.json) requests
 druglikeness, scaffold preservation, and QuickVina docking with explicit settings:
 

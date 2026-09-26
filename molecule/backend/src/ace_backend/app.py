@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
+from pydantic.json_schema import JsonSchemaValue
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.middleware.base import RequestResponseEndpoint
@@ -26,11 +27,11 @@ from ace_backend.inputs import prepare_submission, read_submission
 from ace_backend.job_store import JobStore
 from ace_backend.jobs_schema import (
     CONFIG_EXAMPLE,
+    INFERENCE_CONFIG_ADAPTER,
     ArtifactList,
     Error,
     ErrorDetail,
     ErrorResponse,
-    InferenceConfig,
     Job,
     QueuedJob,
 )
@@ -109,9 +110,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["Cache-Control"] = "no-store"
         return cast(Capabilities, request.state.capabilities)
 
-    config_schema = InferenceConfig.model_json_schema()
-    config_schema["properties"]["ace"] = config_schema.pop("$defs")["ACEParameters"]
-
     @app.post(
         "/api/v1/inference/jobs",
         response_model=QueuedJob,
@@ -146,8 +144,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                 "config": {
                                     "type": "string",
                                     "contentMediaType": "application/json",
-                                    "contentSchema": config_schema,
-                                    "description": "Required UTF-8 InferenceConfig JSON as a regular form field, not a file. All fields are required; only num_ligand_atoms may be null. num_samples is one ACE particle batch.",
+                                    "contentSchema": _inline_config_schema(INFERENCE_CONFIG_ADAPTER.json_schema()),
+                                    "description": "Required UTF-8 InferenceConfig JSON as a regular form field, not a file. Select nr_scaffold_v1 or fkc_scaffold_v1 with moe parameters, or ace_scaffold_v1 with ace parameters. All fields for the selected preset are required; only num_ligand_atoms may be null. num_samples is one particle batch.",
                                     "example": json.dumps(CONFIG_EXAMPLE),
                                 },
                             },
@@ -158,7 +156,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         },
     )
     async def submit_inference(request: Request, response: Response) -> QueuedJob:
-        """Validate and persist inputs, then queue ACE inference independently of the HTTP connection."""
+        """Validate and persist inputs, then queue NR, FKC, or ACE inference independently of the HTTP connection."""
         readiness = cast(Capabilities, request.state.capabilities)
         if not readiness.inference.available:
             raise APIError(503, Error(code="inference_unavailable", message="Inference prerequisites are unavailable."))
@@ -190,7 +188,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                 "config": {
                                     "type": "string",
                                     "contentMediaType": "application/json",
-                                    "contentSchema": _evaluation_config_schema(),
+                                    "contentSchema": _inline_config_schema(EvaluationConfig.model_json_schema()),
                                     "description": "EvaluationConfig JSON as a regular form field. Inference-job sources forbid files. Upload sources require ligand_sdf, plus fragment_sdf for scaffold preservation and pocket_pdb/reference_ligand_sdf for docking. All config fields are required; docking must be null unless requested.",
                                     "example": json.dumps(EVALUATION_CONFIG_EXAMPLE),
                                 },
@@ -264,15 +262,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
-def _evaluation_config_schema() -> object:
-    schema = EvaluationConfig.model_json_schema()
+def _inline_config_schema(schema: JsonSchemaValue) -> object:
     definitions = schema.pop("$defs", {})
 
     def inline(value: object) -> object:
         if isinstance(value, dict):
             if "$ref" in value:
                 return inline(definitions[value["$ref"].rsplit("/", 1)[1]])
-            # The inline oneOf branches retain their literal source.type constraints.
+            # Inline oneOf branches retain their literal discriminator constraints.
             return {key: inline(item) for key, item in value.items() if key != "discriminator"}
         if isinstance(value, list):
             return [inline(item) for item in value]

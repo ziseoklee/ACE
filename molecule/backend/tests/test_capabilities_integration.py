@@ -69,7 +69,7 @@ def test_ready_response_matches_contract(model_assets: tuple[Path, ...]) -> None
             "scaffold_preservation": {"available": True, "reason": None},
             "docking": {"available": True, "reason": None},
         },
-        "inference_presets": ["ace_scaffold_v1"],
+        "inference_presets": ["nr_scaffold_v1", "fkc_scaffold_v1", "ace_scaffold_v1"],
         "limits": {
             "max_file_bytes": 10485760,
             "max_request_bytes": 33554432,
@@ -223,7 +223,7 @@ def test_disabled_features_skip_probes_and_keep_presets(monkeypatch: pytest.Monk
     assert result.evaluation.druglikeness == UnavailableFeature(reason="feature_not_enabled")
     assert result.evaluation.scaffold_preservation == UnavailableFeature(reason="feature_not_enabled")
     assert result.evaluation.docking == UnavailableFeature(reason="feature_not_enabled")
-    assert result.inference_presets == ("ace_scaffold_v1",)
+    assert result.inference_presets == ("nr_scaffold_v1", "fkc_scaffold_v1", "ace_scaffold_v1")
 
 
 def test_limits_and_feature_settings_are_read_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:

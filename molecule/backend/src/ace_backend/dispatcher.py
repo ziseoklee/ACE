@@ -11,7 +11,7 @@ from pathlib import Path
 
 from ace_backend.evaluation_schema import EvaluationConfig
 from ace_backend.job_store import JobStore
-from ace_backend.jobs_schema import WORKER_OUTCOME_ADAPTER, Error, InferenceConfig, WorkerFailure
+from ace_backend.jobs_schema import INFERENCE_CONFIG_ADAPTER, WORKER_OUTCOME_ADAPTER, Error, WorkerFailure
 from ace_backend.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ class Dispatcher:
         raw = (root / "request.json").read_bytes()
         environment = dict(os.environ)
         if job.kind == "inference":
-            config = InferenceConfig.model_validate_json(raw)
+            config = INFERENCE_CONFIG_ADAPTER.validate_json(raw)
             environment.update(PYTHONHASHSEED=str(config.seed), CUBLAS_WORKSPACE_CONFIG=":4096:8")
         else:
             evaluation = EvaluationConfig.model_validate_json(raw)

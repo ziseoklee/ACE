@@ -16,13 +16,35 @@ class ACEParameters(FrozenModel):
     b2: float = Field(ge=0, le=10)
 
 
-class InferenceConfig(FrozenModel):
-    preset: Literal["ace_scaffold_v1"]
+class ConstantMoEParameters(FrozenModel):
+    omega: float = Field(ge=0, le=10)
+    diffusion_scale: float = Field(gt=0, le=10)
+
+
+class _InferenceConfigBase(FrozenModel):
     num_samples: int = Field(ge=1, le=16)
     seed: int = Field(ge=0, le=4294967295)
     num_sampling_steps: int = Field(ge=10, le=2000)
     num_ligand_atoms: Annotated[int, Field(ge=1, le=128)] | None
+
+
+class NRInferenceConfig(_InferenceConfigBase):
+    preset: Literal["nr_scaffold_v1"]
+    moe: ConstantMoEParameters
+
+
+class FKCInferenceConfig(_InferenceConfigBase):
+    preset: Literal["fkc_scaffold_v1"]
+    moe: ConstantMoEParameters
+
+
+class ACEInferenceConfig(_InferenceConfigBase):
+    preset: Literal["ace_scaffold_v1"]
     ace: ACEParameters
+
+
+InferenceConfig = Annotated[NRInferenceConfig | FKCInferenceConfig | ACEInferenceConfig, Field(discriminator="preset")]
+INFERENCE_CONFIG_ADAPTER: TypeAdapter[InferenceConfig] = TypeAdapter(InferenceConfig)
 
 
 CONFIG_EXAMPLE = {

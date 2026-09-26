@@ -20,7 +20,6 @@ from test_inference_integration import ROOT, FileParts, assert_error, molecule_s
 import ace_backend.app as api
 import ace_backend.dispatcher as dispatch
 from ace_backend.evaluation_schema import EVALUATION_CONFIG_EXAMPLE
-from ace_backend.jobs_schema import CONFIG_EXAMPLE
 from ace_backend.schemas import (
     AvailableFeature,
     Capabilities,
@@ -166,8 +165,9 @@ def test_upload_runs_real_cpu_metrics_and_survives_restart(make_evaluation_clien
         assert restarted.get(stored_ligand["url"]).content == ligand
 
 
+@pytest.mark.parametrize("filename", ["inference-config-nr.json", "inference-config-fkc.json", "inference-config.json"])
 def test_source_snapshot_preserves_selected_samples_after_source_removal(
-    make_evaluation_client: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    make_evaluation_client: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch, tmp_path: Path, filename: str
 ) -> None:
     real_command = dispatch.worker_command
 
@@ -184,9 +184,9 @@ def test_source_snapshot_preserves_selected_samples_after_source_removal(
 
     monkeypatch.setattr(dispatch, "worker_command", command)
     with make_evaluation_client() as client:
-        inference = client.post(
-            "/api/v1/inference/jobs", files=parts(config={**CONFIG_EXAMPLE, "num_samples": 3})
-        ).json()
+        inference_config = json.loads((ROOT / "examples" / filename).read_text())
+        inference_config["num_samples"] = 3
+        inference = client.post("/api/v1/inference/jobs", files=parts(config=inference_config)).json()
         inference_result = completed_result(client, inference)
         original = {item["artifact_id"]: client.get(item["url"]).content for item in check_artifacts(client, inference)}
         config = {

@@ -68,7 +68,7 @@ def check_cuda(device: str) -> FeatureAvailability:
 
 
 def inference_checkpoint_paths() -> tuple[Path, ...]:
-    """Use the same assets as the four experts in ace_scaffold_v1."""
+    """Use the same four-expert assets shared by all scaffold v1 presets."""
     from experts.diffsbdd_expert import DIFFSBDD_CKPT_PATH
     from experts.edm_expert import EDM_PRETRAINED_GEOM_DRUG, EDM_PRETRAINED_SPECS
     from experts.geodiff_expert import GEODIFF_CKPT_PATH, GEODIFF_CONFIG_PATH

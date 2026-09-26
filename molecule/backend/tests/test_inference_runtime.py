@@ -1,6 +1,7 @@
 """Scientific adapter boundaries that do not require GPUs or model weights."""
 
 import io
+import json
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +11,7 @@ from omegaconf import OmegaConf
 from rdkit import Chem
 
 from ace_backend.inference_runtime import build_preset
-from ace_backend.jobs_schema import CONFIG_EXAMPLE, InferenceConfig
+from ace_backend.jobs_schema import CONFIG_EXAMPLE, INFERENCE_CONFIG_ADAPTER
 from ace_backend.worker import publish_sample
 
 
@@ -52,7 +53,7 @@ def test_preset_matches_existing_four_expert_configuration() -> None:
 
     from configs import config as registry
 
-    request = InferenceConfig.model_validate(CONFIG_EXAMPLE)
+    request = INFERENCE_CONFIG_ADAPTER.validate_python(CONFIG_EXAMPLE)
     sampler, moe = build_preset(request, "cuda:3")
     with initialize_config_dir(config_dir=str(Path(registry.__file__).parent), version_base=None):
         existing = compose(
@@ -71,6 +72,40 @@ def test_preset_matches_existing_four_expert_configuration() -> None:
     assert OmegaConf.to_container(OmegaConf.structured(moe), resolve=True) == OmegaConf.to_container(
         existing.moe, resolve=True
     )
+
+
+@pytest.mark.parametrize(
+    ("filename", "name", "use_logq", "do_resample"),
+    [
+        ("inference-config-nr.json", "NRSampler", False, False),
+        ("inference-config-fkc.json", "FKCSampler", False, True),
+        ("inference-config.json", "ACESampler", True, True),
+    ],
+)
+def test_presets_preserve_expert_exponents_and_explicit_settings(
+    filename: str, name: str, use_logq: bool, do_resample: bool
+) -> None:
+    from inference.sampling_runtime import build_exponent_list
+
+    raw = json.loads((Path(__file__).resolve().parents[2] / "examples" / filename).read_text())
+    raw.update(num_samples=3, seed=123, num_sampling_steps=120)
+    parameters = raw["ace"] if name == "ACESampler" else raw["moe"]
+    parameters.update(omega=2.3, diffusion_scale=1.25)
+    if name == "ACESampler":
+        parameters.update(b1=7.0, b2=0.5)
+    sampler, moe = build_preset(INFERENCE_CONFIG_ADAPTER.validate_python(raw), "cuda:2")
+    assert (sampler.name, sampler.use_logq, sampler.do_resample) == (name, use_logq, do_resample)
+    assert (sampler.batch_size, sampler.seed, sampler.num_sampling_steps, sampler.device) == (3, 123, 120, "cuda:2")
+    assert moe.diffusion_scale == 1.25
+    assert moe.global_scheduler_key == "GEODIFF"
+    assert list(moe.components) == ["edm_fragment", "edm_ligand", "geodiff_fragment", "diffsbdd"]
+    exponents = build_exponent_list(tuple(moe.components.items()), moe.exponents)
+    t = torch.tensor([[0.0], [0.25], [0.5], [1.0]])
+    actual = torch.cat([exponent(t) for exponent in exponents], dim=1)
+    expected = torch.tensor([[-2.3, -1.3, 2.3, 2.3]]).expand(4, -1).clone()
+    if name == "ACESampler":
+        expected[:, 3] += (7.0 * t * (1 - t) + 0.5 * t)[:, 0]
+    torch.testing.assert_close(actual, expected)
 
 
 @pytest.mark.parametrize("problem", ["missing_conformer", "2d", "nonfinite", "invalid_valence"])
