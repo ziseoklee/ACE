@@ -1,0 +1,13 @@
+{
+  "preset": "ace_scaffold_v1",
+  "num_samples": 10,
+  "seed": 42,
+  "num_sampling_steps": 500,
+  "num_ligand_atoms": null,
+  "ace": {
+    "omega": 1.4,
+    "diffusion_scale": 2.0,
+    "b1": 30.0,
+    "b2": 0.336
+  }
+}

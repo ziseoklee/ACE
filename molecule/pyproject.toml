@@ -26,7 +26,7 @@ ace-evaluate = "evaluation.cli:main"
 [dependency-groups]
 backend = ["ace-web-backend"]
 test = [
-    "httpx>=0.28,<1",
+    "httpx2>=2,<3",
     "pytest>=8,<10",
     "ruff>=0.11,<1",
 ]
@@ -89,6 +89,7 @@ configs = ["*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
+markers = ["cuda: opt-in integration test using actual CUDA devices and ACE checkpoints"]
 
 
 [tool.ruff]

@@ -1,7 +1,7 @@
 # ACE scaffold decoration web demo — API contract v1
 
 - Created: 2026-09-25
-- Status: **`GET /api/v1/capabilities` is implemented. The remaining endpoints are a design specification for subsequent implementation.**
+- Status: **Capabilities, inference submission/execution, job status/results, and artifact endpoints are implemented. Evaluation submission remains a design specification for subsequent implementation.**
 - Scope: Contracts for inputs, jobs, results, evaluation, and files between the FastAPI backend and the Svelte + TypeScript frontend
 - API prefix: `/api/v1`
 
@@ -219,15 +219,15 @@ Example `InferenceConfig`:
 }
 ```
 
-After saving this example as `inference-config.json`, submit a request from the project root as follows.
-The command below is a usage example to run after the server is implemented.
+This config is provided in [`examples/inference-config.json`](../examples/inference-config.json). Submit a request from the project root as follows.
+The command below submits a job to the running backend server.
 
 ```bash
 curl --fail-with-body http://localhost:8000/api/v1/inference/jobs \
   -F 'pocket_pdb=@examples/4m7t_pocket.pdb' \
   -F 'fragment_sdf=@examples/4m7t_fragment.sdf' \
   -F 'reference_ligand_sdf=@examples/4m7t_ligand.sdf' \
-  -F 'config=<inference-config.json'
+  -F 'config=<examples/inference-config.json'
 ```
 
 After parsing the files, performing basic chemical validation, and checking limits, the server stores the inputs and job metadata and returns `202 Accepted`.
@@ -641,4 +641,4 @@ Contract validation criteria for subsequent implementation:
 - Executions are traceable through original inputs, resolved config, seed, and model/environment versions.
 - Record API integration test results using substituted models separately from validation results for actual CUDA inference.
 
-`/capabilities` and its integration tests are currently implemented. Job submission, inference, evaluation, file APIs, and the frontend will be implemented sequentially in subsequent stages.
+Capabilities, inference submission/execution, job status/results, and file APIs have integration tests. Evaluation submission and the frontend will be implemented in subsequent stages.

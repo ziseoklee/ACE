@@ -1,5 +1,7 @@
 """Validated server configuration; never supplied by API clients."""
 
+from pathlib import Path
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -12,4 +14,5 @@ class Settings(BaseSettings):
     device: str = Field(default="cuda:0", pattern=r"^cuda:(0|[1-9][0-9]*)$")
     disabled_features: frozenset[FeatureName] = frozenset()
     cors_origins: tuple[str, ...] = ()
+    storage_dir: Path = Path("outputs/web_demo")
     limits: OperationalLimits = Field(default_factory=OperationalLimits)
