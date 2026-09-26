@@ -24,21 +24,21 @@ IDs, timestamps, numbers, molecules, and scores in the JSON examples are **illus
 
 ## 2. Common rules
 
-| Item | Contract |
-| --- | --- |
-| Response format | `application/json`, UTF-8, except for file responses |
-| Upload format | `multipart/form-data`; `config` is a regular form field containing a UTF-8 JSON string |
-| JSON fields | `snake_case`. Unknown request fields are rejected, including those in nested objects |
-| Types | No implicit type coercion, such as treating numeric strings or booleans as numbers |
-| Numbers | Only finite JSON numbers are allowed. `NaN` and infinity are prohibited |
-| Missing fields and null | Omitting a required field is an error. `null` is allowed only for fields explicitly identified below |
-| Timestamps | UTC RFC 3339 strings, e.g. `2026-09-25T03:00:00Z` |
-| IDs | `job_id` and `artifact_id` are UUID strings issued by the server. `sample_id` is a zero-based integer within a job |
-| URLs | Relative to the API origin. If the frontend and API have different origins, resolve URLs against the API origin |
-| Coordinates and units | Molecular and pocket coordinates and distances: Å. Docking affinity: kcal/mol |
-| Request identification | Every response includes `X-Request-ID`. Error responses include the same ID |
-| Caching | Job, result, and artifact responses use `Cache-Control: no-store` in the initial implementation |
-| Versioning | Incompatible changes to fields, units, states, or scientific meaning require a new API major version |
+| Item                    | Contract                                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Response format         | `application/json`, UTF-8, except for file responses                                                               |
+| Upload format           | `multipart/form-data`; `config` is a regular form field containing a UTF-8 JSON string                             |
+| JSON fields             | `snake_case`. Unknown request fields are rejected, including those in nested objects                               |
+| Types                   | No implicit type coercion, such as treating numeric strings or booleans as numbers                                 |
+| Numbers                 | Only finite JSON numbers are allowed. `NaN` and infinity are prohibited                                            |
+| Missing fields and null | Omitting a required field is an error. `null` is allowed only for fields explicitly identified below               |
+| Timestamps              | UTC RFC 3339 strings, e.g. `2026-09-25T03:00:00Z`                                                                  |
+| IDs                     | `job_id` and `artifact_id` are UUID strings issued by the server. `sample_id` is a zero-based integer within a job |
+| URLs                    | Relative to the API origin. If the frontend and API have different origins, resolve URLs against the API origin    |
+| Coordinates and units   | Molecular and pocket coordinates and distances: Å. Docking affinity: kcal/mol                                      |
+| Request identification  | Every response includes `X-Request-ID`. Error responses include the same ID                                        |
+| Caching                 | Job, result, and artifact responses use `Cache-Control: no-store` in the initial implementation                    |
+| Versioning              | Incompatible changes to fields, units, states, or scientific meaning require a new API major version               |
 
 Optional fields may be added to existing v1 responses. Clients may ignore unknown response fields,
 but must not treat missing required fields or unknown status values as valid results.
@@ -49,15 +49,15 @@ or arbitrary Hydra overrides. Clients use the returned URLs rather than inferrin
 
 ## 3. Endpoints
 
-| Method | Path | Success response | Purpose |
-| --- | --- | --- | --- |
-| GET | `/capabilities` | `200` | Feature availability, presets, and operational limits |
-| POST | `/inference/jobs` | `202` | Submit an inference job |
-| POST | `/evaluation/jobs` | `202` | Submit an evaluation job |
-| GET | `/jobs/{job_id}` | `200` | Job status |
-| GET | `/jobs/{job_id}/result` | `200` | Structured results of a completed job |
-| GET | `/jobs/{job_id}/artifacts` | `200` | Files published by the job |
-| GET | `/jobs/{job_id}/artifacts/{artifact_id}` | `200` | File for visualization or download |
+| Method | Path                                     | Success response | Purpose                                               |
+| ------ | ---------------------------------------- | ---------------- | ----------------------------------------------------- |
+| GET    | `/capabilities`                          | `200`            | Feature availability, presets, and operational limits |
+| POST   | `/inference/jobs`                        | `202`            | Submit an inference job                               |
+| POST   | `/evaluation/jobs`                       | `202`            | Submit an evaluation job                              |
+| GET    | `/jobs/{job_id}`                         | `200`            | Job status                                            |
+| GET    | `/jobs/{job_id}/result`                  | `200`            | Structured results of a completed job                 |
+| GET    | `/jobs/{job_id}/artifacts`               | `200`            | Files published by the job                            |
+| GET    | `/jobs/{job_id}/artifacts/{artifact_id}` | `200`            | File for visualization or download                    |
 
 The implementation also provides FastAPI's `/openapi.json` and `/docs`. These two paths do not use the `/api/v1` prefix.
 OpenAPI must include descriptions and examples of the internal structure of the multipart `config` field.
@@ -116,12 +116,12 @@ See [`backend/README.md`](../backend/README.md) for execution, configuration, an
 
 ### 5.1 Inference inputs
 
-| Form field | Format | Required | Meaning |
-| --- | --- | --- | --- |
-| `pocket_pdb` | PDB | Yes | A single protein model from which to select the pocket around the reference ligand |
-| `fragment_sdf` | SDF | Yes | A single molecule containing the scaffold graph and initial 3D coordinates |
-| `reference_ligand_sdf` | SDF | Yes | Reference for pocket selection, automatic ligand atom count determination, and the subsequent docking box |
-| `config` | JSON string | Yes | The `InferenceConfig` in §6 |
+| Form field             | Format      | Required | Meaning                                                                                                   |
+| ---------------------- | ----------- | -------- | --------------------------------------------------------------------------------------------------------- |
+| `pocket_pdb`           | PDB         | Yes      | A single protein model from which to select the pocket around the reference ligand                        |
+| `fragment_sdf`         | SDF         | Yes      | A single molecule containing the scaffold graph and initial 3D coordinates                                |
+| `reference_ligand_sdf` | SDF         | Yes      | Reference for pocket selection, automatic ligand atom count determination, and the subsequent docking box |
+| `config`               | JSON string | Yes      | The `InferenceConfig` in §6                                                                               |
 
 Store the original uploads separately from the normalized inputs actually used. All three structures must use Å units and the same protein coordinate frame.
 The server does not automatically align uploads, generate conformers, or reconstruct missing atoms.
@@ -175,17 +175,17 @@ Do not reject an otherwise valid file solely because the browser supplies an emp
 Every field in `config` is required and must satisfy the ranges below. Only `num_ligand_atoms` permits `null`.
 The request must explicitly include the UI's initial values. The server does not arbitrarily fill in omitted scientific settings.
 
-| Field | Type and range | Initial UI value | Existing code mapping |
-| --- | --- | --- | --- |
-| `preset` | literal `ace_scaffold_v1` | `ace_scaffold_v1` | Four-expert configuration in `inference.yaml` |
-| `num_samples` | integer, 1..server limit | 5 | `sampler.batch_size` |
-| `seed` | integer, 0..4294967295 | 42 | `sampler.seed` |
-| `num_sampling_steps` | integer, 10..server limit | 500 | `sampler.num_sampling_steps` |
-| `num_ligand_atoms` | integer, 1..server limit, or null | null | `data.num_ligand_atoms` |
-| `ace.omega` | finite number, 0..10 | 1.4 | `moe.omega` |
-| `ace.diffusion_scale` | finite number, 0 < x ≤ 10 | 2.0 | `moe.diffusion_scale` |
-| `ace.b1` | finite number, 0..100 | 30 | `moe.exponents.diffsbdd.weight_fn.B1` |
-| `ace.b2` | finite number, 0..10 | 0.336 | `moe.exponents.diffsbdd.weight_fn.B2` |
+| Field                 | Type and range                    | Initial UI value  | Existing code mapping                         |
+| --------------------- | --------------------------------- | ----------------- | --------------------------------------------- |
+| `preset`              | literal `ace_scaffold_v1`         | `ace_scaffold_v1` | Four-expert configuration in `inference.yaml` |
+| `num_samples`         | integer, 1..server limit          | 5                 | `sampler.batch_size`                          |
+| `seed`                | integer, 0..4294967295            | 42                | `sampler.seed`                                |
+| `num_sampling_steps`  | integer, 10..server limit         | 500               | `sampler.num_sampling_steps`                  |
+| `num_ligand_atoms`    | integer, 1..server limit, or null | null              | `data.num_ligand_atoms`                       |
+| `ace.omega`           | finite number, 0..10              | 1.4               | `moe.omega`                                   |
+| `ace.diffusion_scale` | finite number, 0 < x ≤ 10         | 2.0               | `moe.diffusion_scale`                         |
+| `ace.b1`              | finite number, 0..100             | 30                | `moe.exponents.diffsbdd.weight_fn.B1`         |
+| `ace.b2`              | finite number, 0..10              | 0.336             | `moe.exponents.diffsbdd.weight_fn.B2`         |
 
 The upper limits and ACE parameter ranges define the demo's supported range. Reject out-of-range values rather than silently adjusting them.
 `num_samples` is the **particle batch size of a single ACE run**, not the number of independent runs.
@@ -266,12 +266,12 @@ Common fields: `job_id`, `kind` (`inference` or `evaluation`), `status`, `create
 In every state, `links` contains the three URLs shown in the example in §6.
 State-specific fields must be present as defined below. Do not include fields exclusive to other states.
 
-| status | Additional required fields | Meaning |
-| --- | --- | --- |
-| `queued` | None | Accepted and waiting for execution |
-| `running` | `started_at`, `phase`, `progress` | Execution in progress |
-| `succeeded` | `started_at`, `finished_at` | Execution complete, including publication of results and files |
-| `failed` | `started_at` (null if failure occurred before execution), `finished_at`, `error` | Entire job failed |
+| status      | Additional required fields                                                       | Meaning                                                        |
+| ----------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `queued`    | None                                                                             | Accepted and waiting for execution                             |
+| `running`   | `started_at`, `phase`, `progress`                                                | Execution in progress                                          |
+| `succeeded` | `started_at`, `finished_at`                                                      | Execution complete, including publication of results and files |
+| `failed`    | `started_at` (null if failure occurred before execution), `finished_at`, `error` | Entire job failed                                              |
 
 Allowed transitions:
 
@@ -310,15 +310,15 @@ A nonexistent job returns `404 job_not_found`. Do not return partial results as 
 
 Required fields:
 
-| Field | Type and meaning |
-| --- | --- |
-| `job_id`, `kind` | Job ID and the literal `inference` |
-| `resolved_num_ligand_atoms` | Total ligand node count actually used |
-| `summary` | Integers `{requested, available, invalid}`. `requested = available + invalid` |
-| `pocket_selection` | `{cutoff_angstrom: 8.0, residues: ResidueId[]}` |
-| `inputs` | An ArtifactRef for each of `pocket_pdb`, `fragment_sdf`, and `reference_ligand_sdf`: the normalized inputs actually used |
-| `samples` | A Sample array with the requested length, sorted by ascending `sample_id` |
-| `warnings` | `{code: string, message: string}[]`; an empty array if there are no warnings |
+| Field                       | Type and meaning                                                                                                         |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `job_id`, `kind`            | Job ID and the literal `inference`                                                                                       |
+| `resolved_num_ligand_atoms` | Total ligand node count actually used                                                                                    |
+| `summary`                   | Integers `{requested, available, invalid}`. `requested = available + invalid`                                            |
+| `pocket_selection`          | `{cutoff_angstrom: 8.0, residues: ResidueId[]}`                                                                          |
+| `inputs`                    | An ArtifactRef for each of `pocket_pdb`, `fragment_sdf`, and `reference_ligand_sdf`: the normalized inputs actually used |
+| `samples`                   | A Sample array with the requested length, sorted by ascending `sample_id`                                                |
+| `warnings`                  | `{code: string, message: string}[]`; an empty array if there are no warnings                                             |
 
 `ResidueId` is `{chain_id: string, residue_number: integer, insertion_code: string}`.
 Represent missing chain IDs or insertion codes as empty strings. No separate model index is exposed because only a single protein model is allowed.
@@ -378,11 +378,11 @@ As with inference, `config` is a JSON string.
 
 Required `EvaluationConfig` fields:
 
-| Field | Contract |
-| --- | --- |
-| `source` | One of the two variants below |
+| Field     | Contract                                                                                              |
+| --------- | ----------------------------------------------------------------------------------------------------- |
+| `source`  | One of the two variants below                                                                         |
 | `metrics` | A nonempty array of unique entries chosen from `druglikeness`, `scaffold_preservation`, and `docking` |
-| `docking` | `DockingConfig` if docking is requested; otherwise, must be null |
+| `docking` | `DockingConfig` if docking is requested; otherwise, must be null                                      |
 
 ### 9.1 Referencing generated results
 
@@ -420,24 +420,24 @@ Required `EvaluationConfig` fields:
 }
 ```
 
-| File part | When required |
-| --- | --- |
-| `ligand_sdf` | Always required. A single ligand, with `sample_id=0` in the result |
-| `fragment_sdf` | Required when `scaffold_preservation` is requested |
-| `pocket_pdb` | Required when `docking` is requested |
-| `reference_ligand_sdf` | Required when `docking` is requested |
+| File part              | When required                                                      |
+| ---------------------- | ------------------------------------------------------------------ |
+| `ligand_sdf`           | Always required. A single ligand, with `sample_id=0` in the result |
+| `fragment_sdf`         | Required when `scaffold_preservation` is requested                 |
+| `pocket_pdb`           | Required when `docking` is requested                               |
+| `reference_ligand_sdf` | Required when `docking` is requested                               |
 
 Reject unnecessary file parts, duplicate parts, and unknown parts with `422`.
 A docking reference is explicitly required. This API does not use the existing CLI's fallback that defines the box from the generated ligand.
 
 All fields in `DockingConfig` are required.
 
-| Field | Type and range | Initial UI value |
-| --- | --- | --- |
-| `seed` | integer, 0..2147483647 | 42 |
-| `exhaustiveness` | integer, 1..32 | 8 |
-| `num_modes` | integer, 1..20 | 9 |
-| `padding_angstrom` | finite number, 0 < x ≤ 20 | 8.0 |
+| Field              | Type and range            | Initial UI value |
+| ------------------ | ------------------------- | ---------------- |
+| `seed`             | integer, 0..2147483647    | 42               |
+| `exhaustiveness`   | integer, 1..32            | 8                |
+| `num_modes`        | integer, 1..20            | 9                |
+| `padding_angstrom` | finite number, 0 < x ≤ 20 | 8.0              |
 
 The box center is the center of the reference coordinate bounding box.
 The box length along each axis is `max(reference_extent + 2 * padding_angstrom, 10 Å)`.
@@ -453,24 +453,24 @@ The required evaluation result fields for `GET /jobs/{id}/result` are `job_id`, 
 
 Each measurement, `Report<T>`, is one of the following variants.
 
-| status | Additional required fields | Meaning |
-| --- | --- | --- |
-| `succeeded` | `value: T` | An actually computed finite value, boolean, or object |
-| `failed` | `error: Error` | Calculation or docking failed. No `value` |
-| `skipped` | `reason: "invalid_molecule"` | Not computed because the ligand could not be sanitized. No `value` |
+| status      | Additional required fields   | Meaning                                                            |
+| ----------- | ---------------------------- | ------------------------------------------------------------------ |
+| `succeeded` | `value: T`                   | An actually computed finite value, boolean, or object              |
+| `failed`    | `error: Error`               | Calculation or docking failed. No `value`                          |
+| `skipped`   | `reason: "invalid_molecule"` | Not computed because the ligand could not be sanitized. No `value` |
 
 Do not replace failures with `0`, `false`, or an empty SMILES.
 For example, an actual QED of 0 is `succeeded/value=0`, while a calculation failure is `failed`.
 
-| Group / field | Type and meaning |
-| --- | --- |
-| `druglikeness.validity` | `Report<boolean>`; whether RDKit sanitization succeeded, independently of docking/scaffold success |
-| `druglikeness.qed` | `Report<number>`; QED, 0..1 |
-| `druglikeness.sa_normalized` | `Report<number>`; `clamp((10 - raw_sa) / 9, 0, 1)`. Higher values indicate easier synthesis |
-| `druglikeness.logp` | `Report<number>`; RDKit Crippen LogP |
-| `druglikeness.lipinski_legacy` | `Report<number>`; `(5 - violations) / 5` from the existing code |
-| `scaffold_preservation` | `Report<{contains_fragment: boolean, method: "rdkit_substructure_v1"}>` |
-| `docking` | `Report<{affinity_kcal_mol: number, num_poses: integer}>`; the lowest QuickVina affinity and the number of poses |
+| Group / field                  | Type and meaning                                                                                                 |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `druglikeness.validity`        | `Report<boolean>`; whether RDKit sanitization succeeded, independently of docking/scaffold success               |
+| `druglikeness.qed`             | `Report<number>`; QED, 0..1                                                                                      |
+| `druglikeness.sa_normalized`   | `Report<number>`; `clamp((10 - raw_sa) / 9, 0, 1)`. Higher values indicate easier synthesis                      |
+| `druglikeness.logp`            | `Report<number>`; RDKit Crippen LogP                                                                             |
+| `druglikeness.lipinski_legacy` | `Report<number>`; `(5 - violations) / 5` from the existing code                                                  |
+| `scaffold_preservation`        | `Report<{contains_fragment: boolean, method: "rdkit_substructure_v1"}>`                                          |
+| `docking`                      | `Report<{affinity_kcal_mol: number, num_poses: integer}>`; the lowest QuickVina affinity and the number of poses |
 
 Additional semantics:
 
@@ -548,17 +548,17 @@ HTTP error bodies use the following structure. The inner `error` object uses the
 Errors without field-level details use `details=[]`. User-facing messages must not include server stack traces or absolute server paths.
 The frontend branches on stable `code` values rather than parsing messages. Normalize FastAPI's default validation errors to this format as well.
 
-| HTTP | Representative codes | Situation |
-| --- | --- | --- |
-| `400` | `malformed_request` | Malformed multipart data or invalid JSON syntax |
-| `404` | `job_not_found`, `artifact_not_found` | A nonexistent job or an artifact that does not belong to that job |
-| `409` | `result_not_ready`, `job_failed`, `source_job_not_succeeded` | An operation unavailable in the current job state |
-| `413` | `payload_too_large` | Total request, file, or config byte limit exceeded |
-| `415` | `unsupported_media_type` | A submission that is not multipart or has an unsupported file extension |
-| `422` | `validation_error` | Missing required parts/fields, duplicate or unknown fields, or invalid ranges, file contents, or molecular conditions |
-| `429` | `queue_full` | Queue capacity exceeded. Includes `Retry-After` in seconds |
-| `503` | `inference_unavailable`, `evaluation_unavailable` | Required prerequisites such as GPU, checkpoints, or evaluation tools are not met |
-| `500` | `internal_error` | An unexpected server error during submission or retrieval |
+| HTTP  | Representative codes                                         | Situation                                                                                                             |
+| ----- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `400` | `malformed_request`                                          | Malformed multipart data or invalid JSON syntax                                                                       |
+| `404` | `job_not_found`, `artifact_not_found`                        | A nonexistent job or an artifact that does not belong to that job                                                     |
+| `409` | `result_not_ready`, `job_failed`, `source_job_not_succeeded` | An operation unavailable in the current job state                                                                     |
+| `413` | `payload_too_large`                                          | Total request, file, or config byte limit exceeded                                                                    |
+| `415` | `unsupported_media_type`                                     | A submission that is not multipart or has an unsupported file extension                                               |
+| `422` | `validation_error`                                           | Missing required parts/fields, duplicate or unknown fields, or invalid ranges, file contents, or molecular conditions |
+| `429` | `queue_full`                                                 | Queue capacity exceeded. Includes `Retry-After` in seconds                                                            |
+| `503` | `inference_unavailable`, `evaluation_unavailable`            | Required prerequisites such as GPU, checkpoints, or evaluation tools are not met                                      |
+| `500` | `internal_error`                                             | An unexpected server error during submission or retrieval                                                             |
 
 Detail codes for chemical input validation include `invalid_structure`, `multiple_records`, `multiple_models`,
 `coordinates_required`, `unsupported_fragment_atom`, `atom_count_too_small`, `limit_exceeded`, and `empty_pocket`.
@@ -578,14 +578,14 @@ New detailed error codes may be added, so clients must display unknown codes as 
 `GET /jobs/{job_id}/artifacts` returns `{job_id: UUID, artifacts: Artifact[]}`.
 Each `Artifact` requires the following fields.
 
-| Field | Meaning |
-| --- | --- |
-| `artifact_id`, `url` | File ID and access URL |
-| `role` | `input_original`, `input_prepared`, `ligand`, `preview`, `request_config`, `resolved_config`, `provenance`, `result`, `diagnostic` |
-| `filename` | A safe filename for display and saving |
-| `media_type` | MIME type for the file formats below |
-| `size_bytes` | Actual file size in bytes |
-| `sha256` | SHA-256 of the file contents, as 64 lowercase hexadecimal characters |
+| Field                | Meaning                                                                                                                            |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `artifact_id`, `url` | File ID and access URL                                                                                                             |
+| `role`               | `input_original`, `input_prepared`, `ligand`, `preview`, `request_config`, `resolved_config`, `provenance`, `result`, `diagnostic` |
+| `filename`           | A safe filename for display and saving                                                                                             |
+| `media_type`         | MIME type for the file formats below                                                                                               |
+| `size_bytes`         | Actual file size in bytes                                                                                                          |
+| `sha256`             | SHA-256 of the file contents, as 64 lowercase hexadecimal characters                                                               |
 
 - PDB: `chemical/x-pdb`; SDF: `chemical/x-mdl-sdfile`; PNG: `image/png`;
   JSON: `application/json`; YAML: `application/yaml`; XYZ and other text diagnostics: `text/plain`.
@@ -617,16 +617,16 @@ Subsequent evaluations produce provenance and results under separate jobs and do
 
 ## 13. Existing code integration points and subsequent validation
 
-| API responsibility | Code to reuse / implementation considerations |
-| --- | --- |
-| Four-expert configuration and parameters | [`src/configs/inference.yaml`](../src/configs/inference.yaml), [`config_sampler.py`](../src/configs/config_sampler.py), [`config_weight.py`](../src/configs/config_weight.py) |
-| Model runtime | [`src/inference/sampling_runtime.py`](../src/inference/sampling_runtime.py) |
-| Sampling per condition | `SamplingCondition`, `sample_condition`, and `write_sampling_result` in [`src/inference/condition_sampling.py`](../src/inference/condition_sampling.py) |
-| Reference-based pocket selection | [`src/experts/diffsbdd_expert.py`](../src/experts/diffsbdd_expert.py), and `get_pocket_from_ligand` in the pinned DiffSBDD version |
-| Molecule reconstruction | [`src/postprocessing/molecule_builder.py`](../src/postprocessing/molecule_builder.py); the API must verify sanitization and serialization results and preserve per-sample failures |
-| Druglikeness evaluation | [`src/evaluation/metrics/druglikeness.py`](../src/evaluation/metrics/druglikeness.py); a boundary is needed to distinguish zero fallbacks from calculation failures |
-| Docking evaluation | [`src/evaluation/metrics/docking.py`](../src/evaluation/metrics/docking.py), [`backends/qvina.py`](../src/evaluation/backends/qvina.py) |
-| Example inputs | `4m7t`, `3nfb`, and `4yhj` in [`examples/README.md`](../examples/README.md) |
+| API responsibility                       | Code to reuse / implementation considerations                                                                                                                                      |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Four-expert configuration and parameters | [`src/configs/inference.yaml`](../src/configs/inference.yaml), [`config_sampler.py`](../src/configs/config_sampler.py), [`config_weight.py`](../src/configs/config_weight.py)      |
+| Model runtime                            | [`src/inference/sampling_runtime.py`](../src/inference/sampling_runtime.py)                                                                                                        |
+| Sampling per condition                   | `SamplingCondition`, `sample_condition`, and `write_sampling_result` in [`src/inference/condition_sampling.py`](../src/inference/condition_sampling.py)                            |
+| Reference-based pocket selection         | [`src/experts/diffsbdd_expert.py`](../src/experts/diffsbdd_expert.py), and `get_pocket_from_ligand` in the pinned DiffSBDD version                                                 |
+| Molecule reconstruction                  | [`src/postprocessing/molecule_builder.py`](../src/postprocessing/molecule_builder.py); the API must verify sanitization and serialization results and preserve per-sample failures |
+| Druglikeness evaluation                  | [`src/evaluation/metrics/druglikeness.py`](../src/evaluation/metrics/druglikeness.py); a boundary is needed to distinguish zero fallbacks from calculation failures                |
+| Docking evaluation                       | [`src/evaluation/metrics/docking.py`](../src/evaluation/metrics/docking.py), [`backends/qvina.py`](../src/evaluation/backends/qvina.py)                                            |
+| Example inputs                           | `4m7t`, `3nfb`, and `4yhj` in [`examples/README.md`](../examples/README.md)                                                                                                        |
 
 Contract validation criteria for subsequent implementation:
 

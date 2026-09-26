@@ -115,7 +115,7 @@ The relevant boundary is externally observable state, not whether a local list u
 
 ## 2.1 Prefer declarative transformations when they improve reasoning
 
-Prefer expressing *what* transformation is performed rather than manually managing state when the declarative form is easier to understand.
+Prefer expressing _what_ transformation is performed rather than manually managing state when the declarative form is easier to understand.
 
 Example:
 

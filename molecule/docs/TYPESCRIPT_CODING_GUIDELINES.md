@@ -36,11 +36,16 @@ type SimulationState =
 
 function describe(state: SimulationState): string {
   switch (state.kind) {
-    case "prepared": return "prepared";
-    case "running": return `running: ${state.jobId}`;
-    case "completed": return `completed: ${state.result.id}`;
-    case "failed": return `failed: ${state.error.message}`;
-    default: return assertNever(state);
+    case "prepared":
+      return "prepared";
+    case "running":
+      return `running: ${state.jobId}`;
+    case "completed":
+      return `completed: ${state.result.id}`;
+    case "failed":
+      return `failed: ${state.error.message}`;
+    default:
+      return assertNever(state);
   }
 }
 
@@ -56,8 +61,12 @@ Adding a variant should produce a compile error at unhandled switches. Avoid `{s
 When the caller knows the desired type, make the operation and return type explicit.
 
 ```ts
-function loadProtein(path: string): Promise<Protein> { /* ... */ }
-function loadLigand(path: string): Promise<Ligand> { /* ... */ }
+function loadProtein(path: string): Promise<Protein> {
+  /* ... */
+}
+function loadLigand(path: string): Promise<Ligand> {
+  /* ... */
+}
 ```
 
 Avoid a broad `load(path): Promise<Protein | Ligand | Trajectory>` that forces every caller to inspect a runtime result. A broad API is appropriate when discovery of the input kind is actually part of the task.
@@ -78,7 +87,10 @@ Use `readonly` for configuration and value-like objects. Prefer creating a new v
 type SimulationConfig = Readonly<{
   temperatureKelvin: number;
   durationNs: number;
-  backend: Readonly<{ platform: "CPU" | "CUDA"; precision: "single" | "mixed" }>;
+  backend: Readonly<{
+    platform: "CPU" | "CUDA";
+    precision: "single" | "mixed";
+  }>;
 }>;
 ```
 
@@ -95,7 +107,10 @@ interface CollectiveVariable {
   evaluate(system: System): number;
 }
 
-function generateConformers(molecule: Molecule, config: ConformerConfig): Conformer[] {
+function generateConformers(
+  molecule: Molecule,
+  config: ConformerConfig,
+): Conformer[] {
   /* algorithm */
 }
 ```
@@ -115,14 +130,22 @@ function parseMDConfig(input: unknown): MDConfig {
   }
   const fields = input as Record<string, unknown>;
   const keys = Object.keys(fields);
-  if (keys.some(key => key !== "temperatureKelvin" && key !== "timestepFs")) {
+  if (keys.some((key) => key !== "temperatureKelvin" && key !== "timestepFs")) {
     throw new Error("Unknown MD config field");
   }
   const { temperatureKelvin, timestepFs } = fields;
-  if (typeof temperatureKelvin !== "number" || !Number.isFinite(temperatureKelvin) || temperatureKelvin <= 0) {
+  if (
+    typeof temperatureKelvin !== "number" ||
+    !Number.isFinite(temperatureKelvin) ||
+    temperatureKelvin <= 0
+  ) {
     throw new Error("temperatureKelvin must be a positive finite number");
   }
-  if (typeof timestepFs !== "number" || !Number.isFinite(timestepFs) || timestepFs <= 0) {
+  if (
+    typeof timestepFs !== "number" ||
+    !Number.isFinite(timestepFs) ||
+    timestepFs <= 0
+  ) {
     throw new Error("timestepFs must be a positive finite number");
   }
   return { temperatureKelvin, timestepFs };
@@ -216,7 +239,7 @@ function parseAtomIndex(value: number, atomCount: number): AtomIndex {
 }
 ```
 
-Do not brand every number or string. Where unit conversion is an actual source of mistakes, decide whether descriptive names, a validated unit library, or a narrowly branded type provides the least costly protection. Structural typing also does not make arbitrary object input an *exact* schema: fresh object literal checks are not runtime unknown-key validation.
+Do not brand every number or string. Where unit conversion is an actual source of mistakes, decide whether descriptive names, a validated unit library, or a narrowly branded type provides the least costly protection. Structural typing also does not make arbitrary object input an _exact_ schema: fresh object literal checks are not runtime unknown-key validation.
 
 ### 12.2 Absence has several meanings
 
