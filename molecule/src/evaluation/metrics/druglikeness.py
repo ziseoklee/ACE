@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import sys
 from pathlib import Path
@@ -55,29 +56,41 @@ def _safe_float(fn) -> float:
         return 0.0
 
 
-def _safe_sa_score(mol: Mol) -> float:
+def calculate_sa_normalized(mol: Mol) -> float:
+    """Calculate the existing normalized SA score, preserving calculation failures."""
     if sascorer is None:
-        return 0.0
+        raise ImportError("RDKit SA_Score is unavailable.")
+    raw_sa = float(sascorer.calculateScore(mol))
+    if not math.isfinite(raw_sa):
+        raise ValueError("SA score must be finite.")
+    # Normalize the raw 1 (easy) to 10 (hard) scale as in DiffSBDD.
+    return max(0.0, min(1.0, (10.0 - raw_sa) / 9.0))
+
+
+def calculate_lipinski_legacy(mol: Mol, logp: float) -> float:
+    """The CLI's four-rule score with its historical denominator of five."""
+    weight = float(rdMolDescriptors._CalcMolWt(mol))
+    donors = float(rdMolDescriptors.CalcNumHBD(mol))
+    acceptors = float(rdMolDescriptors.CalcNumHBA(mol))
+    if not all(math.isfinite(value) for value in (weight, logp, donors, acceptors)):
+        raise ValueError("Lipinski inputs must be finite.")
+    violations = 0
+    violations += int(weight > 500)
+    violations += int(logp > 5)
+    violations += int(donors > 5)
+    violations += int(acceptors > 10)
+    return (5 - violations) / 5.0
+
+
+def _safe_sa_score(mol: Mol) -> float:
     try:
-        raw_sa = float(sascorer.calculateScore(mol))
-        # Normalize to [0, 1] as per DiffSBDD
-        # Raw scale: 1 (easy) to 10 (hard)
-        # Normalized: 1.0 (easy) to 0.0 (hard)
-        # Clamp to [0, 1] just in case raw score drifts slightly outside 1-10
-        return max(0.0, min(1.0, (10.0 - raw_sa) / 9.0))
+        return calculate_sa_normalized(mol)
     except Exception:
         return 0.0
 
 
 def _safe_lipinski_score(mol: Mol, logp: float) -> float:
-    # Lipinski Rule of 5
-    # MW <= 500, LogP <= 5, HBD <= 5, HBA <= 10
     try:
-        violations = 0
-        violations += int(rdMolDescriptors._CalcMolWt(mol) > 500)
-        violations += int(logp > 5)
-        violations += int(rdMolDescriptors.CalcNumHBD(mol) > 5)
-        violations += int(rdMolDescriptors.CalcNumHBA(mol) > 10)
-        return (5 - violations) / 5.0
+        return calculate_lipinski_legacy(mol, logp)
     except Exception:
         return 0.0
